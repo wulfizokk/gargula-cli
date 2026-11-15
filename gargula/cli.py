@@ -220,6 +220,22 @@ def cmd_dna(args) -> int:
     return 0
 
 
+def cmd_crm(args) -> int:
+    from gargula import crm
+    if args.acao == "status":
+        print(crm.formatar_status())
+    elif args.acao == "catalogo":
+        print(crm.formatar_tabela_catalogo())
+    elif args.acao == "config":
+        if getattr(args, "chave", None) and getattr(args, "valor", None):
+            config.definir(f"crm.{args.chave}", args.valor)
+            ui.ok(f"crm.{args.chave} salvo")
+        else:
+            print(f"crm.url   = {crm.url_crm()}")
+            print(f"crm.pasta = {crm.pasta_crm() or '(não configurada)'}")
+    return 0
+
+
 def cmd_inicio(args) -> int:
     from gargula import dna
     print(ui.banner(__version__, "gargula", "", "geral", cor=ui.usa_cor()))
@@ -441,6 +457,19 @@ def montar_parser() -> argparse.ArgumentParser:
 
     c = d.add_parser("reset", help="remove os arquivos de DNA")
     c.set_defaults(func=cmd_dna)
+
+    # CRM Proprietário
+    crm_p = sub.add_parser("crm", help="Gárgula CRM: integração com a central de atendimento e vendas").add_subparsers(dest="acao", required=True)
+    c = crm_p.add_parser("status", help="mostra status do CRM, módulos ativos e travas do agente")
+    c.set_defaults(func=cmd_crm)
+
+    c = crm_p.add_parser("catalogo", help="exibe a tabela oficial de kits e preços cadastrados no CRM")
+    c.set_defaults(func=cmd_crm)
+
+    c = crm_p.add_parser("config", help="configura ou exibe url e pasta do CRM")
+    c.add_argument("chave", nargs="?", choices=["url", "pasta", "token"])
+    c.add_argument("valor", nargs="?")
+    c.set_defaults(func=cmd_crm)
 
     # Início Rápido / Wizard
     for nome in ("inicio", "wizard"):

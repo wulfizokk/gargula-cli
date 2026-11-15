@@ -18,7 +18,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-purple.svg)](https://www.python.org/)
 [![License MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero%20(stdlib%20only)-green.svg)]()
-[![Tests](https://img.shields.io/badge/tests-52%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-55%20passing-brightgreen.svg)]()
 
 O **Gárgula** é um agente autônomo de terminal e **RevOS (Revenue Operating System)** open source feito para quem vende pela internet: infoprodutores, afiliados, gestores de tráfego, e-commerces e equipes de vendas.
 
@@ -33,9 +33,10 @@ No estilo do *Claude Code*, mas especializado em fechar o ciclo de receita no ma
 3. **War Room & Auditor de CRO Pré-Tráfego:** Submete a sua Landing Page a um stress-test implacável com 3 personas (o cético desconfiado, o impaciente dos 5s e o racional econômico) antes de você queimar dinheiro com anúncios.
 4. **Sniper de WhatsApp (Fechamento 1 a 1):** Quebra objeções duras no WhatsApp com 3 abordagens táticas (isolamento, custo de inação e reversão de risco), com proteção anti-ban por design.
 5. **Creative Factory (Fábrica de Criativos):** Gera 10 ganchos de 3s divididos em 5 arquétipos psicológicos e roteiros completos com indicação de corte e B-Rolls.
-6. **Agente com Ferramentas Reais:** Lê e edita arquivos locais, roda comandos no terminal, busca no seu vault do Obsidian e consulta a Graph API do Meta Ads.
-7. **100% Biblioteca Padrão:** Não tem 400 MB de dependências do `node_modules` ou pacotes externos. Usa puramente Python 3.9+ padrão, leve e instantâneo.
-8. **Agnóstico de LLM:** Use Anthropic (Claude), OpenAI (GPT-4o), Gemini, Groq, OpenRouter, DeepSeek ou Ollama 100% local e gratuito.
+6. **CRM Proprietário Pré-Integrado (Next 15 + Postgres + IA):** Conexão nativa com nosso CRM de vendas com agente de atendimento em primeira mão, catálogo de preços anti-alucinação e handoff humano para o time comercial.
+7. **Agente com Ferramentas Reais:** Lê e edita arquivos locais, roda comandos no terminal, busca no seu vault do Obsidian e consulta a Graph API do Meta Ads.
+8. **100% Biblioteca Padrão:** Não tem 400 MB de dependências do `node_modules` ou pacotes externos. Usa puramente Python 3.9+ padrão, leve e instantâneo.
+9. **Agnóstico de LLM:** Use Anthropic (Claude), OpenAI (GPT-4o), Gemini, Groq, OpenRouter, DeepSeek ou Ollama 100% local e gratuito.
 
 ---
 
@@ -198,6 +199,8 @@ gargula --auto chat "leia minhas notas sobre a Black Friday, veja o CPA das camp
 | `meta_ads_insights` | Leitura (livre) | Consulta métricas da Graph API do Meta Ads |
 | `obter_dna` | Leitura (livre) | Lê regras de marca, avatar, oferta e anti-slop |
 | `reconciliar_checkout` | Leitura (livre) | Cruza dados de anúncios com o checkout financeiro |
+| `crm_status` | Leitura (livre) | Inspeciona a conexão e módulos do CRM proprietário |
+| `crm_catalogo` | Leitura (livre) | Consulta kits e preços oficiais no CRM para evitar alucinações |
 | `escrever_arquivo`, `editar_arquivo` | Escrita (pergunta) | Cria e modifica arquivos com segurança |
 | `executar` | Escrita (pergunta) | Roda comandos no terminal (PowerShell / Bash) |
 | `whatsapp_enviar` | **Sempre pergunta** | Envia 1 mensagem com confirmação humana obrigatória |
@@ -211,6 +214,8 @@ gargula --auto chat "leia minhas notas sobre a Black Friday, veja o CPA das camp
 | `gargula inicio` | Assistente interativo de configuração no terminal |
 | `gargula` | Abre o chat REPL interativo com o agente autônomo |
 | `gargula chat "..."` | Executa uma tarefa direta com streaming de resposta |
+| `gargula crm status` | Status da central de atendimento, módulos ativos e travas do agente |
+| `gargula crm catalogo` | Tabela oficial de produtos, kits e preços cadastrados no CRM |
 | `gargula cro` | War Room: stress-test de CRO de página com 3 personas |
 | `gargula criativos ganchos` | Gera 10 ganchos de alta retenção em 5 arquétipos |
 | `gargula criativos roteiro` | Gera roteiro de anúncio com indicações de cena e B-Roll |
@@ -227,6 +232,12 @@ gargula --auto chat "leia minhas notas sobre a Black Friday, veja o CPA das camp
 | `gargula dna mostrar\|set\|inicializar` | Gerencia o DNA da marca, oferta, avatar e regras anti-slop |
 | `gargula provedores` | Lista as LLMs e o status das credenciais |
 | `gargula config` | Gerencia configurações em `~/.gargula/config.json` |
+
+---
+
+## 💼 Monetização & Gárgula RevOS Suite
+
+Para o plano comercial completo, estrutura de planos (Open Source vs Pro vs Suite com CRM) e projeções financeiras, consulte **[MONETIZACAO.md](MONETIZACAO.md)**.
 
 ---
 

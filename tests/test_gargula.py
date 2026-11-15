@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest import mock
 
-from gargula import ads, agente, checkout, cli, config, criativos, cro, dna, ferramentas, llm, ui, zap
+from gargula import ads, agente, checkout, cli, config, criativos, crm, cro, dna, ferramentas, llm, ui, zap
 
 
 class Base(unittest.TestCase):
@@ -490,6 +490,29 @@ class TestCriativos(Base):
             pedido = resp.call_args[0][2][0]["content"]
             self.assertIn("Placa NFC", pedido)
             self.assertIn("GANCHO VISUAL", pedido)
+
+
+class TestCRM(Base):
+    def test_crm_catalogo(self):
+        cat = crm.obter_catalogo()
+        self.assertIsInstance(cat, list)
+        self.assertTrue(any("kit-10" in item.get("id", "") for item in cat))
+        tabela = crm.formatar_tabela_catalogo()
+        self.assertIn("Kit 10", tabela)
+        self.assertIn("Preço à Vista", tabela)
+
+    def test_crm_status(self):
+        st_txt = crm.formatar_status()
+        self.assertIn("STATUS DO GÁRGULA CRM", st_txt)
+
+    def test_ferramentas_crm(self):
+        s1, e1 = ferramentas.rodar("crm_status", {})
+        self.assertFalse(e1)
+        self.assertIn("STATUS DO GÁRGULA CRM", s1)
+
+        s2, e2 = ferramentas.rodar("crm_catalogo", {})
+        self.assertFalse(e2)
+        self.assertIn("Kit 10", s2)
 
 
 if __name__ == "__main__":

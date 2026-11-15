@@ -84,6 +84,12 @@ DEFINICOES = [
      "descricao": "Cruza métricas de anúncios com vendas reais de checkout (Kiwify, Hotmart, etc.) "
                   "para descobrir o ROAS Real e identificar boletos e Pix não pagos.",
      "parametros": _obj({"arquivo_ads": S, "arquivo_checkout": S}, ["arquivo_ads", "arquivo_checkout"])},
+    {"nome": "crm_status", "categoria": "leitura",
+     "descricao": "Inspeciona o status do CRM proprietário (Gárgula/Usetag CRM), módulos ativos e travas do agente.",
+     "parametros": _obj({}, [])},
+    {"nome": "crm_catalogo", "categoria": "leitura",
+     "descricao": "Retorna o catálogo oficial de produtos, kits e preços cadastrados no CRM para evitar alucinações de valores.",
+     "parametros": _obj({}, [])},
 ]
 POR_NOME = {d["nome"]: d for d in DEFINICOES}
 
@@ -306,6 +312,16 @@ def reconciliar_checkout(arquivo_ads: str, arquivo_checkout: str) -> str:
     return checkout.formatar_tabela(res)
 
 
+def crm_status() -> str:
+    from gargula import crm
+    return crm.formatar_status()
+
+
+def crm_catalogo() -> str:
+    from gargula import crm
+    return crm.formatar_tabela_catalogo()
+
+
 IMPLEMENTACOES = {
     "ler_arquivo": lambda a: ler_arquivo(a.get("caminho", ""), a.get("inicio", 1), a.get("linhas", 400)),
     "listar": lambda a: listar(a.get("caminho", "."), a.get("padrao", "*")),
@@ -320,6 +336,8 @@ IMPLEMENTACOES = {
     "whatsapp_enviar": lambda a: whatsapp_enviar(a.get("para", ""), a.get("texto", ""), a.get("via", "evolution")),
     "obter_dna": lambda a: obter_dna(a.get("categoria", "")),
     "reconciliar_checkout": lambda a: reconciliar_checkout(a.get("arquivo_ads", ""), a.get("arquivo_checkout", "")),
+    "crm_status": lambda a: crm_status(),
+    "crm_catalogo": lambda a: crm_catalogo(),
 }
 
 
