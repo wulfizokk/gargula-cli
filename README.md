@@ -110,6 +110,8 @@ Sem token, exporte as métricas do Gerenciador de Anúncios e passe com `--arqui
 | `GARGULA_HOME` | pasta de config (padrão `~/.gargula`) |
 | `NO_COLOR` | desliga as cores |
 
+**Arquivos .env:** ao iniciar, o Gárgula lê `~/.gargula/.env` e os arquivos listados em `env_arquivos`, por exemplo `gargula config set env_arquivos "C:\cofre\gemini.env;C:\cofre\anthropic.env"`. Ele nunca sobrescreve uma variável que já existe no ambiente.
+
 Variável de ambiente vence o arquivo de config. O `config.json` guarda texto puro: em máquina compartilhada, prefira variáveis.
 
 ## Desenvolvimento

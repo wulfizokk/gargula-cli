@@ -100,6 +100,45 @@ def obter(chave: str, padrao=None, cfg: dict | None = None):
     return cfg.get(chave, padrao)
 
 
+def ler_env(caminho: Path) -> dict:
+    """Lê um arquivo .env simples (KEY=valor, # comentário, export opcional)."""
+    valores = {}
+    for linha in Path(caminho).read_text(encoding="utf-8-sig").splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        if linha.startswith("export "):
+            linha = linha[7:]
+        k, _, v = linha.partition("=")
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        valores[k.strip()] = v
+    return valores
+
+
+def carregar_envs() -> list[str]:
+    """Carrega ~/.gargula/.env e os arquivos de `env_arquivos` (separados por ;).
+
+    Não sobrescreve variáveis que já existem no ambiente. Devolve os arquivos lidos.
+    """
+    arquivos = [pasta() / ".env"]
+    extra = os.environ.get("GARGULA_ENV_ARQUIVOS") or carregar().get("env_arquivos") or ""
+    arquivos += [Path(os.path.expanduser(p.strip())) for p in extra.split(";") if p.strip()]
+    lidos = []
+    for p in arquivos:
+        if not p.is_file():
+            continue
+        try:
+            for k, v in ler_env(p).items():
+                if v and not os.environ.get(k):
+                    os.environ[k] = v
+            lidos.append(str(p))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return lidos
+
+
 def resolver_llm(provedor: str | None = None, modelo: str | None = None,
                  base_url: str | None = None) -> dict:
     """Junta provedor, modelo, base e chave de API para uma chamada."""

@@ -238,6 +238,7 @@ def montar_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     ui.preparar_terminal()
+    config.carregar_envs()
     args = montar_parser().parse_args(argv)
     try:
         if not getattr(args, "func", None):

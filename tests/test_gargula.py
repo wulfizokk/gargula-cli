@@ -62,6 +62,15 @@ class TestConfig(Base):
             self.assertEqual(config.resolver_llm("anthropic")["workspace"], "wrkspc_1")
             self.assertIsNone(config.resolver_llm("openai")["workspace"])
 
+    def test_carrega_env_sem_sobrescrever(self):
+        cofre = Path(self.tmp.name) / "cofre.env"
+        cofre.write_text('# chaves\nexport GEMINI_API_KEY="g-123"\nOPENAI_API_KEY=o-456\n', encoding="utf-8")
+        config.definir("env_arquivos", str(cofre))
+        os.environ["OPENAI_API_KEY"] = "ja-existia"
+        self.assertEqual(config.carregar_envs(), [str(cofre)])
+        self.assertEqual(os.environ["GEMINI_API_KEY"], "g-123")
+        self.assertEqual(os.environ["OPENAI_API_KEY"], "ja-existia")
+
     def test_provedor_invalido(self):
         with self.assertRaises(ValueError):
             config.resolver_llm("nao-existe")
