@@ -250,14 +250,17 @@ def editar_arquivo(caminho_: str, antigo: str, novo: str, todas: bool = False) -
 
 def executar(comando: str, timeout: int = 120) -> str:
     timeout = max(1, min(int(timeout or 120), 600))
+    kwargs = {}
     if os.name == "nt":
         args = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
                 "[Console]::OutputEncoding=[Text.Encoding]::UTF8; " + comando]
+        # Evita a chuva de janelas CMD/PowerShell piscando na tela no Windows
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     else:
         args = ["bash", "-lc", comando]
     try:
         r = subprocess.run(args, capture_output=True, timeout=timeout, cwd=os.getcwd(),
-                           env=_env_sem_segredos(), stdin=subprocess.DEVNULL)
+                           env=_env_sem_segredos(), stdin=subprocess.DEVNULL, **kwargs)
     except subprocess.TimeoutExpired:
         raise ErroFerramenta(f"passou de {timeout}s e foi interrompido") from None
     except FileNotFoundError as e:
