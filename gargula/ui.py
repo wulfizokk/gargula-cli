@@ -10,33 +10,32 @@ import time
 
 # Paleta roxa (RGB)
 PALETA = {
-    "D": (91, 33, 182),    # asas, roxo escuro
+    "D": (91, 33, 182),    # asas/costas, roxo escuro
     "P": (139, 92, 246),   # corpo, roxo
-    "L": (196, 181, 253),  # barriga/focinho, lilás
-    "E": (245, 243, 255),  # olhos brilhando
+    "L": (196, 181, 253),  # garras/peito, lilás
+    "E": (245, 243, 255),  # olho brilhando, branco
+    "C": (100, 116, 139),  # cornija/pedra, slate cinza
+    "B": (71, 85, 105),    # fachada/prédio, slate escuro
 }
 ROXO = PALETA["P"]
 LILAS = PALETA["L"]
 CINZA = (148, 148, 160)
 VERDE = (74, 222, 128)
+PEDRA = PALETA["C"]
 
-# Gárgula agachado, asas abertas, garras no topo do quadro.
+# Gárgula de perfil sentado na cornija de um edifício (estilo Batman vigilante).
 # Cada linha = 1 pixel; duas linhas viram uma linha do terminal (meio-bloco).
 MASCOTE = [
-    "...P................P...",
-    "...PP..............PP...",
-    "....PP..PPPPPPPP..PP....",
-    ".....PPPPPPPPPPPPPP.....",
-    "D....PPPEEPPPPEEPPP....D",
-    "DD...PPPPPPPPPPPPPP...DD",
-    "DDD...PPPPLLLLPPPP...DDD",
-    "DDDD...PPPPPPPPPP...DDDD",
-    ".DDDDPPPPLLLLLLPPPPDDDD.",
-    "..DDDPPPPLLLLLLPPPPDDD..",
-    "...DDPPPLLLLLLLLPPPDD...",
-    "....D.PPPPPPPPPPPP.D....",
-    "......PPP.PPPP.PPP......",
-    ".....P.P.P....P.P.P.....",
+    "....PP.....D....",
+    "...PEPP...DDD...",
+    "..PPPPPDDDDDD...",
+    ".PPPPPDDDDDDD...",
+    "LLPPPPPDDDDDD...",
+    ".LL.PPPDDDDD....",
+    "CCCCCCCCCCCCCCCC",
+    ".CCCCCCCCCCCCCC.",
+    "..BBBB....BBBB..",
+    "..BBBB....BBBB..",
 ]
 
 
@@ -89,8 +88,10 @@ def pintar(texto: str, rgb=ROXO, negrito: bool = False, cor: bool | None = None)
     return ("\x1b[1m" if negrito else "") + _fg(rgb) + texto + RESET
 
 
-def desenhar(sprite=MASCOTE, cor: bool = True) -> list[str]:
+def desenhar(sprite: list[str] | None = None, cor: bool = True) -> list[str]:
     """Converte a grade de pixels em linhas de meio-bloco (▀ ▄ █)."""
+    if sprite is None:
+        sprite = MASCOTE
     largura = max(len(l) for l in sprite)
     linhas = [l.ljust(largura, ".") for l in sprite]
     if len(linhas) % 2:
