@@ -1,9 +1,12 @@
-"""Cores, mascote e banner do Gárgula."""
+"""Cores, mascote e componentes visuais do Gárgula."""
 
 from __future__ import annotations
 
 import os
+import re
 import sys
+import threading
+import time
 
 # Paleta roxa (RGB)
 PALETA = {
@@ -15,6 +18,7 @@ PALETA = {
 ROXO = PALETA["P"]
 LILAS = PALETA["L"]
 CINZA = (148, 148, 160)
+VERDE = (74, 222, 128)
 
 # Gárgula agachado, asas abertas, garras no topo do quadro.
 # Cada linha = 1 pixel; duas linhas viram uma linha do terminal (meio-bloco).
@@ -142,9 +146,9 @@ def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None 
     titulo_cru = f"Gárgula CLI  v{versao}"
     titulo = pintar("Gárgula CLI", ROXO, negrito=True, cor=cor) + pintar(f"  v{versao}", CINZA, cor=cor)
     sub = "copiloto de marketing, vendas, WhatsApp e Meta Ads"
-    info = f"provedor: {provedor} · modelo: {modelo}"
-    info2 = f"modo: {modo}"
-    dica = "/ajuda para comandos · /sair para sair"
+    info = f"{provedor} / {modelo}"
+    info2 = f"modo {modo}"
+    dica = "/ajuda · Ctrl+C interrompe · /sair"
 
     out = [recuo + l for l in sprite]
     out.append(pintar("╭" + "─" * largura + "╮", ROXO, cor=cor))
@@ -158,6 +162,138 @@ def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None 
     return "\n".join(out)
 
 
+def _inline_markdown(texto: str, cor: bool) -> str:
+    """Renderiza o subconjunto de Markdown que mais aparece nas respostas."""
+    texto = re.sub(r"\[([^]]+)]\(([^)]+)\)", r"\1 (\2)", texto)
+
+    def codigo(m: re.Match) -> str:
+        conteudo = m.group(1)
+        return pintar(conteudo, LILAS, cor=cor)
+
+    def forte(m: re.Match) -> str:
+        conteudo = m.group(1)
+        if not cor:
+            return conteudo
+        return "\x1b[1m" + conteudo + RESET
+
+    texto = re.sub(r"`([^`]+)`", codigo, texto)
+    texto = re.sub(r"\*\*([^*]+)\*\*", forte, texto)
+    texto = re.sub(r"__([^_]+)__", forte, texto)
+    return texto
+
+
+def formatar_markdown(texto: str, cor: bool | None = None) -> str:
+    """Transforma Markdown simples em texto de terminal limpo e hierárquico."""
+    if cor is None:
+        cor = usa_cor()
+    linhas: list[str] = []
+    em_codigo = False
+    for bruta in texto.strip().splitlines():
+        linha = bruta.rstrip()
+        if linha.lstrip().startswith("```"):
+            em_codigo = not em_codigo
+            continue
+        if em_codigo:
+            linhas.append(pintar("  " + linha, CINZA, cor=cor))
+            continue
+        if not linha.strip():
+            linhas.append("")
+            continue
+
+        cabecalho = re.match(r"^\s{0,3}#{1,6}\s+(.+)$", linha)
+        if cabecalho:
+            titulo = _inline_markdown(cabecalho.group(1), cor)
+            linhas.append(pintar(titulo, LILAS, negrito=True, cor=cor))
+            continue
+
+        item = re.match(r"^(\s*)[-*]\s+(.+)$", linha)
+        if item:
+            recuo = item.group(1)
+            bala = pintar("•", ROXO, negrito=True, cor=cor)
+            linhas.append(f"{recuo}{bala} {_inline_markdown(item.group(2), cor)}")
+            continue
+
+        citado = re.match(r"^\s*>\s?(.*)$", linha)
+        if citado:
+            barra = pintar("│", ROXO, cor=cor)
+            linhas.append(f"{barra} {pintar(citado.group(1), CINZA, cor=cor)}")
+            continue
+
+        linhas.append(_inline_markdown(linha, cor))
+    return "\n".join(linhas)
+
+
+def resposta(texto: str, cor: bool | None = None) -> None:
+    """Imprime uma resposta com identidade e Markdown adequado ao terminal."""
+    if cor is None:
+        cor = usa_cor()
+    marca = pintar("●", ROXO, negrito=True, cor=cor)
+    nome = pintar("Gárgula", LILAS, negrito=True, cor=cor)
+    print(f"{marca} {nome}")
+    corpo = formatar_markdown(texto, cor=cor)
+    if corpo:
+        print("\n".join("  " + linha if linha else "" for linha in corpo.splitlines()))
+
+
+class Pensando:
+    """Indicador animado e descartável enquanto a primeira resposta é montada."""
+
+    FRASES = (
+        (0.0, "Lendo o contexto…"),
+        (2.5, "Pensando na melhor resposta…"),
+        (7.0, "Organizando os próximos passos…"),
+    )
+    QUADROS = ("·  ", "•  ", "•• ", "•••", " ••", "  •")
+
+    def __init__(self, cor: bool | None = None):
+        self.cor = usa_cor() if cor is None else cor
+        self.animar = self.cor and hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+        self._fim = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._inicio = 0.0
+
+    def _frase(self) -> str:
+        decorrido = time.monotonic() - self._inicio
+        atual = self.FRASES[0][1]
+        for limite, frase in self.FRASES:
+            if decorrido >= limite:
+                atual = frase
+        return atual
+
+    def _desenhar(self) -> None:
+        i = 0
+        while not self._fim.wait(0.12):
+            quadro = self.QUADROS[i % len(self.QUADROS)]
+            status = pintar(f"✦ {self._frase()} {quadro}", CINZA, cor=self.cor)
+            sys.stdout.write("\r\x1b[2K" + status)
+            sys.stdout.flush()
+            i += 1
+
+    def __enter__(self):
+        self._inicio = time.monotonic()
+        if self.animar:
+            self._thread = threading.Thread(target=self._desenhar, daemon=True)
+            self._thread.start()
+        else:
+            print("✦ Pensando…")
+        return self
+
+    def parar(self) -> None:
+        self._fim.set()
+        if self._thread:
+            self._thread.join(timeout=0.5)
+        if self.animar:
+            sys.stdout.write("\r\x1b[2K")
+            sys.stdout.flush()
+
+    def __exit__(self, *_):
+        self.parar()
+
+
+def pensando(cor: bool | None = None) -> Pensando:
+    return Pensando(cor=cor)
+
+
 def erro(msg: str) -> None:
     print(pintar("✖ ", (248, 113, 113), cor=usa_cor(sys.stderr)) + msg, file=sys.stderr)
 
@@ -167,4 +303,4 @@ def aviso(msg: str) -> None:
 
 
 def ok(msg: str) -> None:
-    print(pintar("✔ ", (74, 222, 128)) + msg)
+    print(pintar("✔ ", VERDE) + msg)

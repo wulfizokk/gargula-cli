@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest import mock
 
-from gargula import ads, cli, config, llm, ui, zap
+from gargula import ads, agente, cli, config, ferramentas, llm, ui, zap
 
 
 class Base(unittest.TestCase):
@@ -36,6 +36,18 @@ class TestMascote(unittest.TestCase):
 
     def test_com_cor_usa_roxo(self):
         self.assertIn("38;2;139;92;246", "".join(ui.desenhar(cor=True)))
+
+    def test_markdown_fica_limpo_sem_cor(self):
+        txt = ui.formatar_markdown("## Plano\n\n- **Meta Ads**: teste `CPA`\n> nota", cor=False)
+        self.assertEqual(txt, "Plano\n\n• Meta Ads: teste CPA\n│ nota")
+        self.assertNotIn("**", txt)
+
+    def test_resposta_tem_identidade_e_recuo(self):
+        with mock.patch("sys.stdout") as out:
+            ui.resposta("Oi\n\n- item", cor=False)
+        impresso = "".join(c.args[0] for c in out.write.call_args_list)
+        self.assertIn("● Gárgula", impresso)
+        self.assertIn("  • item", impresso)
 
 
 class TestConfig(Base):
@@ -89,25 +101,29 @@ class TestLLM(unittest.TestCase):
         url, h, c = llm.montar_requisicao("anthropic", "https://a/v1", "k", "m", "sis", self.MSGS)
         self.assertEqual(url, "https://a/v1/messages")
         self.assertEqual(h["x-api-key"], "k")
-        self.assertEqual(c["system"], "sis")
+        self.assertEqual(c["system"][0]["text"], "sis")
+        self.assertEqual(c["system"][0]["cache_control"], {"type": "ephemeral"})
 
     def test_openai_coloca_sistema_primeiro(self):
         url, h, c = llm.montar_requisicao("openai", "https://o/v1", "k", "m", "sis", self.MSGS)
         self.assertEqual(url, "https://o/v1/chat/completions")
         self.assertEqual(h["Authorization"], "Bearer k")
         self.assertEqual(c["messages"][0], {"role": "system", "content": "sis"})
-        self.assertEqual(c["max_tokens"], llm.MAX_TOKENS)  # evita o 402 do OpenRouter
+        self.assertEqual(c["max_tokens"], llm.max_tokens())  # evita o 402 do OpenRouter
 
     def test_gemini_troca_assistant_por_model(self):
         url, h, c = llm.montar_requisicao("gemini", "https://g/v1beta", "k", "gm", "sis", self.MSGS)
         self.assertTrue(url.endswith("/models/gm:streamGenerateContent?alt=sse"))
         self.assertEqual([x["role"] for x in c["contents"]], ["user", "model"])
 
-    def test_eventos(self):
-        self.assertEqual(llm.texto_do_evento("anthropic", {"type": "content_block_delta",
-                         "delta": {"type": "text_delta", "text": "a"}}), "a")
-        self.assertEqual(llm.texto_do_evento("openai", {"choices": [{"delta": {"content": "b"}}]}), "b")
-        self.assertEqual(llm.texto_do_evento("gemini", {"candidates": [{"content": {"parts": [{"text": "c"}]}}]}), "c")
+    def test_eventos_de_texto(self):
+        for tipo, ev, esperado in (
+            ("anthropic", {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "a"}}, "a"),
+            ("openai", {"choices": [{"delta": {"content": "b"}}]}, "b"),
+            ("gemini", {"candidates": [{"content": {"parts": [{"text": "c"}]}}]}, "c")):
+            acc = llm.Acumulador(tipo)
+            acc.evento(ev)
+            self.assertEqual(acc.resultado()["texto"], esperado)
 
     def test_sse_ignora_done_e_lixo(self):
         linhas = [b"event: x\n", b"data: {\"a\": 1}\n", b"\n", b"data: [DONE]\n", b"data: {quebrado\n"]
@@ -146,7 +162,7 @@ class TestStreamingPonta(unittest.TestCase):
             r = {"provedor": "compativel", "tipo": "openai", "base": f"http://127.0.0.1:{srv.server_port}/v1",
                  "modelo": "teste", "chave": "k123", "env": None}
             pedacos = []
-            texto = llm.conversar(r, "sis", [{"role": "user", "content": "oi"}], ao_pedaco=pedacos.append)
+            texto = llm.conversar(r, "sis", [{"role": "user", "content": "oi"}], ao_pedaco=pedacos.append)["texto"]
         finally:
             srv.shutdown()
             srv.server_close()
@@ -228,6 +244,155 @@ class TestCLI(Base):
         impresso = "".join(c.args[0] for c in out.write.call_args_list)
         self.assertIn("••••9999", impresso)
         self.assertNotIn("segredo", impresso)
+
+
+class TestChamadasDeFerramenta(unittest.TestCase):
+    def test_anthropic_monta_json_em_pedacos(self):
+        acc = llm.Acumulador("anthropic")
+        for ev in ({"type": "content_block_start", "index": 0, "content_block": {"type": "text"}},
+                   {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Vou ler."}},
+                   {"type": "content_block_start", "index": 1,
+                    "content_block": {"type": "tool_use", "id": "tu1", "name": "ler_arquivo", "input": {}}},
+                   {"type": "content_block_delta", "index": 1,
+                    "delta": {"type": "input_json_delta", "partial_json": '{"cami'}},
+                   {"type": "content_block_delta", "index": 1,
+                    "delta": {"type": "input_json_delta", "partial_json": 'nho": "a.md"}'}},
+                   {"type": "message_delta", "delta": {"stop_reason": "tool_use"}}):
+            acc.evento(ev)
+        r = acc.resultado()
+        self.assertEqual(r["texto"], "Vou ler.")
+        self.assertEqual(r["chamadas"], [{"id": "tu1", "nome": "ler_arquivo", "args": {"caminho": "a.md"}}])
+        self.assertEqual(r["parada"], "tool_use")
+
+    def test_openai_junta_argumentos_por_indice(self):
+        acc = llm.Acumulador("openai")
+        acc.evento({"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "c1", "function": {"name": "listar", "arguments": '{"cam'}}]}}]})
+        acc.evento({"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "function": {"arguments": 'inho": "."}'}}]}, "finish_reason": "tool_calls"}]})
+        self.assertEqual(acc.resultado()["chamadas"], [{"id": "c1", "nome": "listar", "args": {"caminho": "."}}])
+
+    def test_gemini_guarda_partes_brutas(self):
+        acc = llm.Acumulador("gemini")
+        parte = {"functionCall": {"name": "buscar_notas", "args": {"termo": "usetag"}}, "thoughtSignature": "xyz"}
+        acc.evento({"candidates": [{"content": {"parts": [parte]}}]})
+        r = acc.resultado()
+        self.assertEqual(r["chamadas"][0]["args"], {"termo": "usetag"})
+        self.assertEqual(r["bruto"], [parte])  # thoughtSignature volta intacto na próxima rodada
+
+    def test_historico_convertido_para_cada_api(self):
+        hist = [{"role": "user", "content": "lê"},
+                {"role": "assistant", "content": "", "chamadas": [{"id": "x1", "nome": "listar", "args": {}}]},
+                {"role": "ferramenta", "resultados": [{"id": "x1", "nome": "listar", "conteudo": "a.md", "erro": False}]}]
+        defs = ferramentas.definicoes_api()
+        _, _, a = llm.montar_requisicao("anthropic", "u", "k", "m", "s", hist, ferramentas=defs)
+        self.assertEqual(a["messages"][1]["content"][0]["type"], "tool_use")
+        self.assertEqual(a["messages"][2]["content"][0]["tool_use_id"], "x1")
+        self.assertIn("input_schema", a["tools"][0])
+        _, _, o = llm.montar_requisicao("openai", "u", "k", "m", "s", hist, ferramentas=defs)
+        self.assertEqual(o["messages"][2]["tool_calls"][0]["function"]["name"], "listar")
+        self.assertEqual(o["messages"][3], {"role": "tool", "tool_call_id": "x1", "content": "a.md"})
+        _, _, g = llm.montar_requisicao("gemini", "u", "k", "m", "s", hist, ferramentas=defs)
+        self.assertEqual(g["contents"][1]["parts"][0]["functionCall"]["name"], "listar")
+        self.assertIn("functionResponse", g["contents"][2]["parts"][0])
+        self.assertIn("functionDeclarations", g["tools"][0])
+
+
+class TestFerramentas(Base):
+    def setUp(self):
+        super().setUp()
+        self.cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        Path("notas").mkdir()
+        Path("notas/usetag.md").write_text("# USETAG\nplaca NFC de avaliação\npreço kit\n", encoding="utf-8")
+        Path("notas/.secrets").mkdir()
+        Path("notas/.secrets/chaves.env").write_text("API=segredo", encoding="utf-8")
+
+    def tearDown(self):
+        os.chdir(self.cwd)
+        super().tearDown()
+
+    def test_ler_listar_buscar(self):
+        self.assertIn("2\tplaca NFC", ferramentas.ler_arquivo("notas/usetag.md"))
+        self.assertEqual(ferramentas.listar("notas"), "usetag.md")  # .secrets some da lista
+        self.assertIn("usetag.md:2:", ferramentas.buscar_texto("nfc", "notas"))
+        self.assertNotIn("segredo", ferramentas.buscar_texto("segredo", "."))
+
+    def test_segredo_bloqueado(self):
+        conteudo, erro = ferramentas.rodar("ler_arquivo", {"caminho": "notas/.secrets/chaves.env"})
+        self.assertTrue(erro)
+        self.assertIn("protegido", conteudo)
+
+    def test_editar_exige_trecho_unico(self):
+        Path("x.txt").write_text("a\na\nb\n", encoding="utf-8")
+        self.assertTrue(ferramentas.rodar("editar_arquivo", {"caminho": "x.txt", "antigo": "a", "novo": "z"})[1])
+        ferramentas.rodar("editar_arquivo", {"caminho": "x.txt", "antigo": "b", "novo": "c"})
+        self.assertEqual(Path("x.txt").read_text(encoding="utf-8"), "a\na\nc\n")
+
+    def test_buscar_notas_na_pasta_base(self):
+        config.definir("pasta_base", str(Path(self.tmp.name) / "notas"))
+        self.assertIn("usetag.md", ferramentas.buscar_notas("placa avaliação"))
+
+    def test_terminal_nao_herda_chaves(self):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-x", "META_ACCESS_TOKEN": "t", "PATH_X": "ok"}):
+            env = ferramentas._env_sem_segredos()
+        self.assertNotIn("ANTHROPIC_API_KEY", env)
+        self.assertNotIn("META_ACCESS_TOKEN", env)
+        self.assertEqual(env["PATH_X"], "ok")
+
+    def test_executar(self):
+        saida = ferramentas.executar("echo gargula")
+        self.assertIn("[código de saída 0]", saida)
+        self.assertIn("gargula", saida)
+
+
+class TestAgente(Base):
+    LLM = {"provedor": "openai", "tipo": "openai", "base": "u", "modelo": "m", "chave": "k", "env": "X"}
+
+    def _respostas(self, *rs):
+        fila = list(rs)
+        return mock.patch.object(agente, "conversar", side_effect=lambda *a, **k: fila.pop(0))
+
+    def test_ciclo_ferramenta_e_resposta_final(self):
+        Path(self.tmp.name, "nota.md").write_text("ticket médio R$ 97", encoding="utf-8")
+        caminho = str(Path(self.tmp.name, "nota.md"))
+        r1 = {"texto": "", "chamadas": [{"id": "1", "nome": "ler_arquivo", "args": {"caminho": caminho}}],
+              "parada": "tool_calls"}
+        r2 = {"texto": "O ticket é R$ 97.", "chamadas": [], "parada": "stop"}
+        a = agente.Agente(self.LLM)
+        with self._respostas(r1, r2), mock.patch("sys.stdout"):
+            final = a.turno("qual o ticket?")
+        self.assertEqual(final, "O ticket é R$ 97.")
+        resultado = a.historico[2]["resultados"][0]
+        self.assertIn("R$ 97", resultado["conteudo"])
+        self.assertFalse(resultado["erro"])
+
+    def test_escrita_sem_terminal_e_sem_auto_e_negada(self):
+        r1 = {"texto": "", "chamadas": [{"id": "1", "nome": "executar", "args": {"comando": "echo oi"}}],
+              "parada": "tool_calls"}
+        r2 = {"texto": "ok", "chamadas": [], "parada": "stop"}
+        a = agente.Agente(self.LLM)
+        with self._respostas(r1, r2), mock.patch("sys.stdout"), mock.patch("sys.stdin") as stdin:
+            stdin.isatty.return_value = False
+            a.turno("roda")
+        self.assertTrue(a.historico[2]["resultados"][0]["erro"])
+        self.assertIn("sem permissão", a.historico[2]["resultados"][0]["conteudo"])
+
+    def test_auto_libera_comando_mas_nao_whatsapp(self):
+        a = agente.Agente(self.LLM, auto=True)
+        with mock.patch("sys.stdin") as stdin:
+            stdin.isatty.return_value = False
+            self.assertTrue(a.permitido("executar", {"comando": "dir"})[0])
+            self.assertFalse(a.permitido("whatsapp_enviar", {"para": "1", "texto": "oi"})[0])
+
+    def test_contexto_carrega_agents_md(self):
+        cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        try:
+            Path("AGENTS.md").write_text("regra: responder curto", encoding="utf-8")
+            self.assertIn("responder curto", agente.Agente(self.LLM).sistema())
+        finally:
+            os.chdir(cwd)
 
 
 if __name__ == "__main__":

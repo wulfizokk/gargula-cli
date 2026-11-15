@@ -7,7 +7,7 @@ import json
 import sys
 
 from gargula import __version__, ads, config, prompts, ui, zap
-from gargula.llm import ErroLLM, conversar
+from gargula.llm import ErroLLM, responder
 
 
 def _llm(args):
@@ -17,7 +17,7 @@ def _llm(args):
 def _perguntar(args, modo: str, pedido: str) -> int:
     """Uma pergunta à LLM com saída em streaming (boa para pipe: `gargula copy ... > copy.md`)."""
     llm = _llm(args)
-    conversar(llm, prompts.sistema(modo), [{"role": "user", "content": pedido}],
+    responder(llm, prompts.sistema(modo), [{"role": "user", "content": pedido}],
               ao_pedaco=lambda p: (sys.stdout.write(p), sys.stdout.flush()))
     print()
     return 0
@@ -36,8 +36,9 @@ def cmd_chat(args) -> int:
         texto = f"{texto}\n\n{entrada}".strip() if entrada else texto
     if not texto:
         from gargula import repl
-        return repl.rodar(args.provedor, args.modelo, args.modo)
-    return _perguntar(args, args.modo, texto)
+        return repl.rodar(args.provedor, args.modelo, args.modo, args.auto)
+    from gargula import agente
+    return agente.rodar_unico(_llm(args), texto, args.modo, args.auto)
 
 
 def cmd_copy(args) -> int:
@@ -157,15 +158,17 @@ def cmd_config(args) -> int:
 def montar_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="gargula",
-        description="Gárgula: copiloto de terminal para marketing digital, vendas online, WhatsApp e Meta Ads.",
+        description="Gárgula: agente de terminal para marketing digital, vendas online, WhatsApp e Meta Ads.",
         epilog="Sem subcomando abre o chat interativo. Ex.: gargula copy --produto 'placa NFC' --publico 'barbearias'",
     )
     p.add_argument("--version", action="version", version=f"gargula {__version__}")
     p.add_argument("-p", "--provedor", help=f"LLM: {', '.join(config.PROVEDORES)}")
     p.add_argument("-m", "--modelo", help="modelo do provedor (ex.: gpt-4o-mini)")
+    p.add_argument("-y", "--auto", action="store_true",
+                   help="aprova escrita de arquivos e comandos sem perguntar (WhatsApp sempre pergunta)")
     sub = p.add_subparsers(dest="comando")
 
-    c = sub.add_parser("chat", help="pergunta direta ou chat interativo (aceita texto por pipe)")
+    c = sub.add_parser("chat", help="tarefa para o agente ou chat interativo (aceita texto por pipe)")
     c.add_argument("texto", nargs="*")
     c.add_argument("--modo", default="geral", choices=list(prompts.MODOS))
     c.set_defaults(func=cmd_chat)
@@ -243,7 +246,7 @@ def main(argv=None) -> int:
     try:
         if not getattr(args, "func", None):
             from gargula import repl
-            return repl.rodar(args.provedor, args.modelo)
+            return repl.rodar(args.provedor, args.modelo, "geral", args.auto)
         return args.func(args)
     except (ErroLLM, zap.ErroZap, ads.ErroAds, ValueError, FileNotFoundError) as e:
         ui.erro(str(e))

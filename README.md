@@ -15,8 +15,12 @@
 ╰──────────────────────────────────────────────╯
 ```
 
-O Gárgula é um copiloto de terminal, open source, para quem vende pela internet: copy, oferta, funil, mensagens e envio de WhatsApp, e métricas do Meta Ads com diagnóstico. No terminal ele aparece roxo, sentado em cima do quadro.
+O Gárgula é um agente de terminal open source para quem vende pela internet, no estilo do Claude Code, mas feito para marketing digital, vendas, WhatsApp e Meta Ads. No terminal ele aparece roxo, sentado em cima do quadro.
 
+- **É um agente de verdade**: lê e edita arquivos, roda comandos, busca nas suas notas (vault do Obsidian, base de conhecimento), lê páginas da web e consulta o Meta Ads sozinho, em ciclo, até terminar a tarefa.
+- **Pede permissão**: leitura roda direto; escrever arquivo e rodar comando pedem `[s]im / [n]ão / [t]odas`. Com `--auto` (ou `/auto`) ele aprova sozinho, exceto o envio de WhatsApp, que sempre pergunta.
+- **Protege segredos**: não lê `.env`, `.secrets`, chaves nem tokens, e o terminal do agente não herda as chaves de API.
+- **Lê instruções do projeto**: carrega `GARGULA.md`, `AGENTS.md` e `CLAUDE.md` da pasta atual e da pasta base.
 - **Funciona com qualquer LLM**: Anthropic (Claude), OpenAI, Gemini, Groq, OpenRouter, DeepSeek, Ollama (local) ou qualquer API compatível com OpenAI.
 - **Não precisa de dependências**: usa só a biblioteca padrão do Python 3.9+.
 - **Trava anti-ban no WhatsApp**: manda para 1 destinatário por vez, mostra uma prévia por padrão, pede confirmação e espera um intervalo mínimo entre envios. Ele não faz disparo em lote.
@@ -48,6 +52,23 @@ gargula -p groq chat "3 ganchos para reels de barbearia"
 gargula -p ollama -m llama3.1 chat "ideia de isca digital para nutricionista"
 gargula -p compativel chat "oi"        # com: gargula config set base_url.compativel http://localhost:1234/v1
 ```
+
+## Agente
+
+```bash
+gargula config set pasta_base "C:\Users\voce\minhas-notas"   # vault/base que ele pode pesquisar
+gargula                                      # chat com ferramentas
+gargula chat "leia minhas notas de preço e monte 3 ofertas para a Black Friday"
+gargula --auto chat "rode os testes e corrija o que falhar"
+```
+
+| Ferramenta | Permissão |
+|---|---|
+| `ler_arquivo`, `listar`, `buscar_texto`, `buscar_notas`, `ler_url`, `meta_ads_insights` | roda direto |
+| `escrever_arquivo`, `editar_arquivo`, `executar` (PowerShell/bash) | pergunta (ou `--auto`); fora da pasta atual sempre pergunta |
+| `whatsapp_enviar` | sempre pergunta, um número por vez |
+
+Para trabalho de agente, os melhores resultados vêm de Claude (Anthropic). Modelos menores funcionam, mas desistem mais cedo.
 
 ## Comandos
 
