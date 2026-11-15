@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest import mock
 
-from gargula import ads, agente, cli, config, ferramentas, llm, ui, zap
+from gargula import ads, agente, checkout, cli, config, criativos, cro, dna, ferramentas, llm, ui, zap
 
 
 class Base(unittest.TestCase):
@@ -393,6 +393,103 @@ class TestAgente(Base):
             self.assertIn("responder curto", agente.Agente(self.LLM).sistema())
         finally:
             os.chdir(cwd)
+
+
+class TestDNA(Base):
+    def test_salvar_e_obter_dna(self):
+        dna.salvar("avatar", "Dor: CPA caro demais")
+        self.assertEqual(dna.obter("avatar"), "Dor: CPA caro demais")
+        self.assertIn("avatar.md", str(dna.arquivo("avatar")))
+
+    def test_anti_slop_padrao(self):
+        txt = dna.obter("anti_slop")
+        self.assertIn("Filtro Anti-Slop", txt)
+        self.assertIn("no mundo acelerado de hoje", txt)
+
+    def test_formatar_contexto(self):
+        dna.salvar("oferta", "Promessa: Dobrar faturamento")
+        ctx = dna.formatar_contexto()
+        self.assertIn("Offer DNA", ctx)
+        self.assertIn("Dobrar faturamento", ctx)
+        self.assertIn("Regras Anti-Slop", ctx)
+
+    def test_ferramenta_obter_dna(self):
+        dna.salvar("marca", "Tom: Sem papas na língua")
+        saida, erro = ferramentas.rodar("obter_dna", {"categoria": "marca"})
+        self.assertFalse(erro)
+        self.assertEqual(saida, "Tom: Sem papas na língua")
+
+
+class TestCheckout(Base):
+    def test_identificar_transacao_formatos(self):
+        # formato estilo Kiwify / BR
+        l1 = {"Status": "Aprovada", "Valor Líquido": "R$ 197,50", "utm_campaign": "natal_promo"}
+        t1 = checkout.identificar_transacao(l1)
+        self.assertEqual(t1["status"], "pago")
+        self.assertEqual(t1["valor"], 197.5)
+        self.assertEqual(t1["campanha"], "natal_promo")
+
+        # formato com status pendente (boleto)
+        l2 = {"status": "aguardando pagamento", "valor": "97,00", "campanha": "natal_promo"}
+        t2 = checkout.identificar_transacao(l2)
+        self.assertEqual(t2["status"], "pendente")
+        self.assertEqual(t2["valor"], 97.0)
+
+        # formato estornado
+        l3 = {"status": "reembolsado", "valor": "97.00"}
+        t3 = checkout.identificar_transacao(l3)
+        self.assertEqual(t3["status"], "cancelado")
+
+    def test_reconciliacao_e_alerta_boleto(self):
+        ads_res = [{
+            "nome": "campanha_natal",
+            "gasto": 300.0,
+            "compras": 6,
+            "receita": 600.0,
+            "roas": 2.0
+        }]
+        checkout_linhas = [
+            {"status": "aprovado", "valor": "100,00", "campanha": "campanha_natal"},
+            {"status": "aguardando", "valor": "100,00", "campanha": "campanha_natal"},
+            {"status": "aguardando", "valor": "100,00", "campanha": "campanha_natal"},
+        ]
+        res = checkout.reconciliar(ads_res, checkout_linhas)
+        camp = res["campanhas"][0]
+        self.assertEqual(camp["real_pagas"], 1)
+        self.assertEqual(camp["real_pendentes"], 2)
+        self.assertEqual(camp["real_receita"], 100.0)
+        self.assertEqual(camp["real_roas"], 0.33)
+        self.assertEqual(camp["veredito"], "ALERTA (BOLETO/PIX FANTASMA)")
+        self.assertEqual(res["totais"]["lucro_real_total"], -200.0)
+
+        tabela_str = checkout.formatar_tabela(res)
+        self.assertIn("Gasto Meta", tabela_str)
+        self.assertIn("BOLETO/PIX FANTASMA", tabela_str)
+
+
+class TestCRO(Base):
+    def test_extrair_conteudo_direto_e_arquivo(self):
+        self.assertEqual(cro.extrair_conteudo(texto_direto="conteudo direto"), "conteudo direto")
+        f = Path(self.tmp.name) / "lp.html"
+        f.write_text("<h1>Oferta de Natal</h1>", encoding="utf-8")
+        self.assertEqual(cro.extrair_conteudo(arquivo=str(f)), "<h1>Oferta de Natal</h1>")
+
+
+class TestCriativos(Base):
+    def test_gerar_ganchos_e_roteiro(self):
+        with mock.patch("gargula.criativos.responder") as resp:
+            criativos.gerar_ganchos({"provedor": "openai"}, "Curso de Inglês", "Adultos", "sem gramática")
+            self.assertTrue(resp.called)
+            pedido = resp.call_args[0][2][0]["content"]
+            self.assertIn("Curso de Inglês", pedido)
+            self.assertIn("QUEBRA DE PADRÃO", pedido)
+
+        with mock.patch("gargula.criativos.responder") as resp:
+            criativos.gerar_roteiro({"provedor": "openai"}, "Placa NFC", "Barbearias", "reels")
+            self.assertTrue(resp.called)
+            pedido = resp.call_args[0][2][0]["content"]
+            self.assertIn("Placa NFC", pedido)
+            self.assertIn("GANCHO VISUAL", pedido)
 
 
 if __name__ == "__main__":

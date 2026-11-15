@@ -76,6 +76,14 @@ DEFINICOES = [
                   "humana. Proibido usar para disparo em lote ou mensagem fria.",
      "parametros": _obj({"para": S, "texto": S, "via": {"type": "string", "enum": ["evolution", "cloud"]}},
                         ["para", "texto"])},
+    {"nome": "obter_dna", "categoria": "leitura",
+     "descricao": "Lê o DNA da marca, oferta, avatar ou filtro anti-slop da pasta de identidade. "
+                  "categoria: avatar, oferta, marca ou anti_slop.",
+     "parametros": _obj({"categoria": S}, ["categoria"])},
+    {"nome": "reconciliar_checkout", "categoria": "leitura",
+     "descricao": "Cruza métricas de anúncios com vendas reais de checkout (Kiwify, Hotmart, etc.) "
+                  "para descobrir o ROAS Real e identificar boletos e Pix não pagos.",
+     "parametros": _obj({"arquivo_ads": S, "arquivo_checkout": S}, ["arquivo_ads", "arquivo_checkout"])},
 ]
 POR_NOME = {d["nome"]: d for d in DEFINICOES}
 
@@ -278,6 +286,26 @@ def whatsapp_enviar(para: str, texto: str, via: str = "evolution") -> str:
     return f"enviado para {numero} via {via or 'evolution'}"
 
 
+def obter_dna(categoria: str) -> str:
+    from gargula import dna
+    conteudo = dna.obter(categoria)
+    return conteudo or f"DNA para '{categoria}' não configurado ainda."
+
+
+def reconciliar_checkout(arquivo_ads: str, arquivo_checkout: str) -> str:
+    from gargula import ads, checkout
+    p_ads = caminho(arquivo_ads)
+    p_check = caminho(arquivo_checkout)
+    if not p_ads.is_file():
+        raise ErroFerramenta(f"arquivo de ads não encontrado: {p_ads}")
+    if not p_check.is_file():
+        raise ErroFerramenta(f"arquivo de checkout não encontrado: {p_check}")
+    resumos = [ads.resumir(l) for l in ads.carregar_arquivo(str(p_ads))]
+    vendas = checkout.carregar_vendas(str(p_check))
+    res = checkout.reconciliar(resumos, vendas)
+    return checkout.formatar_tabela(res)
+
+
 IMPLEMENTACOES = {
     "ler_arquivo": lambda a: ler_arquivo(a.get("caminho", ""), a.get("inicio", 1), a.get("linhas", 400)),
     "listar": lambda a: listar(a.get("caminho", "."), a.get("padrao", "*")),
@@ -290,6 +318,8 @@ IMPLEMENTACOES = {
                                                bool(a.get("todas"))),
     "executar": lambda a: executar(a.get("comando", ""), a.get("timeout", 120)),
     "whatsapp_enviar": lambda a: whatsapp_enviar(a.get("para", ""), a.get("texto", ""), a.get("via", "evolution")),
+    "obter_dna": lambda a: obter_dna(a.get("categoria", "")),
+    "reconciliar_checkout": lambda a: reconciliar_checkout(a.get("arquivo_ads", ""), a.get("arquivo_checkout", "")),
 }
 
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from pathlib import Path
 
 from gargula import __version__, ads, config, prompts, ui, zap
 from gargula.llm import ErroLLM, responder
@@ -66,6 +68,18 @@ def cmd_zap_msg(args) -> int:
     return _perguntar(args, "zap", pedido)
 
 
+def cmd_zap_objetar(args) -> int:
+    objecao = args.objecao
+    if not objecao and not sys.stdin.isatty():
+        objecao = sys.stdin.read().strip()
+    if not objecao:
+        raise ValueError("informe a objeção do cliente (ex.: gargula zap objetar 'achei caro')")
+    pedido = ("Quebre esta objeção de venda no WhatsApp apresentando 3 abordagens táticas:\n"
+              f"Objeção do cliente: \"{objecao}\"\n"
+              + _campos(contexto=args.contexto, produto=args.produto, preco=args.preco))
+    return _perguntar(args, "objetar", pedido)
+
+
 def cmd_zap_enviar(args) -> int:
     numero = zap.normalizar_numero(args.para)
     texto = args.texto if args.texto != "-" else sys.stdin.read().strip()
@@ -119,6 +133,138 @@ def cmd_ads_diagnostico(args) -> int:
               + (f"Ticket médio: R$ {args.ticket}. " if args.ticket else "")
               + "\n\nMétricas (JSON):\n" + json.dumps(resumos, ensure_ascii=False))
     return _perguntar(args, "ads", pedido)
+
+
+def cmd_ads_reconciliar(args) -> int:
+    from gargula import checkout
+    resumos = _linhas_ads(args)
+    if not resumos:
+        ui.aviso("nenhuma métrica de anúncio encontrada")
+        return 1
+    vendas = checkout.carregar_vendas(args.checkout)
+    if not vendas:
+        ui.aviso("nenhuma venda encontrada no arquivo de checkout")
+        return 1
+    resultado = checkout.reconciliar(resumos, vendas)
+    if args.json:
+        print(json.dumps(resultado, ensure_ascii=False, indent=2))
+    else:
+        print(checkout.formatar_tabela(resultado))
+    return 0
+
+
+def cmd_cro(args) -> int:
+    from gargula import cro
+    entrada = sys.stdin.read().strip() if not sys.stdin.isatty() else None
+    texto = cro.extrair_conteudo(args.url, args.arquivo, entrada or (" ".join(args.texto) if args.texto else None))
+    llm = _llm(args)
+    cro.auditar(llm, texto)
+    print()
+    return 0
+
+
+def cmd_criativos_ganchos(args) -> int:
+    from gargula import criativos
+    criativos.gerar_ganchos(_llm(args), args.produto, args.publico, args.extra)
+    print()
+    return 0
+
+
+def cmd_criativos_roteiro(args) -> int:
+    from gargula import criativos
+    criativos.gerar_roteiro(_llm(args), args.produto, args.publico, args.formato, args.extra)
+    print()
+    return 0
+
+
+def cmd_criativos_pacote(args) -> int:
+    from gargula import criativos
+    criativos.gerar_pacote(_llm(args), args.produto, args.publico, args.preco, args.extra)
+    print()
+    return 0
+
+
+def cmd_dna(args) -> int:
+    from gargula import dna
+    if args.acao == "inicializar":
+        dna.inicializar_templates()
+        ui.ok(f"templates criados em {dna.pasta_dna()}")
+    elif args.acao == "pasta":
+        print(dna.pasta_dna())
+    elif args.acao == "mostrar":
+        if getattr(args, "categoria", None):
+            print(dna.obter(args.categoria))
+        else:
+            for cat, txt in dna.listar().items():
+                print(ui.pintar(f"=== {cat.upper()} ===", ui.ROXO, negrito=True))
+                print(txt or "(vazio)")
+                print()
+    elif args.acao == "set":
+        if not args.categoria or args.valor is None:
+            raise ValueError("uso: gargula dna set <avatar|oferta|marca|anti_slop> <texto_ou_arquivo>")
+        val = args.valor
+        p = Path(val)
+        if p.is_file():
+            val = p.read_text(encoding="utf-8-sig")
+        dna.salvar(args.categoria, val)
+        ui.ok(f"DNA {args.categoria} atualizado em {dna.arquivo(args.categoria)}")
+    elif args.acao == "reset":
+        if not sys.stdin.isatty() or input("Tem certeza que deseja resetar os arquivos de DNA? Digite 'sim': ").strip().lower() == "sim":
+            for cat in dna.CATEGORIAS:
+                f = dna.arquivo(cat)
+                if f.is_file():
+                    f.unlink()
+            ui.ok("DNA resetado")
+        else:
+            ui.aviso("cancelado")
+    return 0
+
+
+def cmd_inicio(args) -> int:
+    from gargula import dna
+    print(ui.banner(__version__, "gargula", "", "geral", cor=ui.usa_cor()))
+    print(ui.pintar("\nBem-vindo ao Assistente do Gárgula CLI!", ui.ROXO, negrito=True))
+    print("Vamos conferir seus provedores de IA e seu ecossistema de vendas.\n")
+
+    print(ui.pintar("1. Status das LLMs:", ui.AMARELO, negrito=True))
+    cmd_provedores(args)
+    print()
+
+    if sys.stdin.isatty():
+        prov_atual = config.obter("provedor", "anthropic")
+        prov = input(f"Provedor padrão atual é '{prov_atual}'. Deseja trocar? (Enter para manter ou digite o nome): ").strip().lower()
+        if prov and prov in config.PROVEDORES:
+            config.definir("provedor", prov)
+            ui.ok(f"provedor padrão alterado para: {prov}")
+
+        print()
+        print(ui.pintar("2. Base de Conhecimento / Vault do Obsidian:", ui.AMARELO, negrito=True))
+        base_atual = config.obter("pasta_base", "")
+        nova_base = input(f"Caminho da sua pasta de notas/vault [{base_atual or 'nenhuma'}]: ").strip()
+        if nova_base:
+            p = Path(os.path.expanduser(nova_base))
+            if p.is_dir():
+                config.definir("pasta_base", str(p.resolve()))
+                ui.ok(f"pasta base salva: {p.resolve()}")
+            else:
+                config.definir("pasta_base", nova_base)
+                ui.aviso(f"pasta salva: {nova_base}")
+
+        print()
+        print(ui.pintar("3. Brand & Offer DNA (Filtro Anti-Slop):", ui.AMARELO, negrito=True))
+        dna.inicializar_templates()
+        ui.ok(f"templates de identidade prontos em {dna.pasta_dna()}")
+
+    print()
+    ui.ok("Tudo pronto! Comandos revolucionários para você testar:")
+    print("  • gargula copy --produto 'Seu Produto' --publico 'Seu Nicho'")
+    print("  • gargula cro --url 'https://seusite.com' (ou passe --arquivo)")
+    print("  • gargula criativos ganchos --produto 'Seu Produto'")
+    print("  • gargula zap objetar 'achei caro, vou ver com meu sócio'")
+    print("  • gargula ads reconciliar --ads metricas.csv --checkout kiwify.csv")
+    print("  • gargula dna mostrar")
+    print("  • gargula (abre o chat interativo com o agente autônomo)\n")
+    return 0
 
 
 def cmd_provedores(args) -> int:
@@ -198,13 +344,22 @@ def montar_parser() -> argparse.ArgumentParser:
     c.add_argument("--extra")
     c.set_defaults(func=cmd_funil)
 
-    z = sub.add_parser("zap", help="WhatsApp: gerar mensagens e enviar 1 por vez").add_subparsers(dest="acao", required=True)
+    # WhatsApp
+    z = sub.add_parser("zap", help="WhatsApp: gerar mensagens, enviar e quebrar objeções").add_subparsers(dest="acao", required=True)
     c = z.add_parser("msg", help="gera mensagens/fluxos de WhatsApp com IA")
     c.add_argument("--objetivo", required=True, help="ex.: 'recuperar carrinho de quem pediu o Pix'")
     c.add_argument("--contexto")
     c.add_argument("--tom")
     c.add_argument("--n", type=int, default=3)
     c.set_defaults(func=cmd_zap_msg)
+
+    c = z.add_parser("objetar", help="gera 3 abordagens cirúrgicas para quebrar objeções no 1 a 1")
+    c.add_argument("objecao", nargs="?", help="a frase ou objeção do cliente (ex.: 'achei caro')")
+    c.add_argument("--contexto", help="histórico ou perfil do cliente")
+    c.add_argument("--produto", help="produto ofertado")
+    c.add_argument("--preco", help="preço e condições")
+    c.set_defaults(func=cmd_zap_objetar)
+
     c = z.add_parser("enviar", help="envia UMA mensagem (prévia por padrão)")
     c.add_argument("--para", required=True, help="um número com DDI, ex.: 5548999990000")
     c.add_argument("--texto", required=True, help="texto ou '-' para ler do stdin")
@@ -214,7 +369,8 @@ def montar_parser() -> argparse.ArgumentParser:
     c.add_argument("--json", action="store_true")
     c.set_defaults(func=cmd_zap_enviar)
 
-    a = sub.add_parser("ads", help="Meta Ads: métricas e diagnóstico (só leitura)").add_subparsers(dest="acao", required=True)
+    # Meta Ads
+    a = sub.add_parser("ads", help="Meta Ads: métricas, diagnóstico e reconciliação").add_subparsers(dest="acao", required=True)
     for nome, fn, ajuda in (("insights", cmd_ads_insights, "tabela de métricas"),
                             ("diagnostico", cmd_ads_diagnostico, "escalar/manter/ajustar/cortar com IA")):
         c = a.add_parser(nome, help=ajuda)
@@ -227,6 +383,69 @@ def montar_parser() -> argparse.ArgumentParser:
             c.add_argument("--meta", help="ex.: 'CPA até R$ 30' ou 'ROAS 3'")
             c.add_argument("--ticket", help="ticket médio em R$")
         c.set_defaults(func=fn)
+
+    c = a.add_parser("reconciliar", help="cruza gasto de ads com vendas reais de checkout para achar o ROAS Real")
+    c.add_argument("--checkout", required=True, help="arquivo CSV do checkout (Kiwify, Hotmart, Eduzz, etc.)")
+    c.add_argument("--arquivo", help="arquivo CSV/JSON com métricas do Meta Ads (ou busca via API se omitido)")
+    c.add_argument("--conta", help="act_123... (ou meta.conta)")
+    c.add_argument("--periodo", default="last_7d", choices=ads.PERIODOS)
+    c.add_argument("--nivel", default="campaign", choices=["campaign", "adset", "ad"])
+    c.add_argument("--json", action="store_true")
+    c.set_defaults(func=cmd_ads_reconciliar)
+
+    # CRO & War Room
+    c = sub.add_parser("cro", help="War Room: stress-test de CRO de página de vendas / oferta")
+    c.add_argument("texto", nargs="*", help="texto ou conteúdo da oferta")
+    c.add_argument("--url", help="URL da página de vendas")
+    c.add_argument("--arquivo", help="arquivo local com HTML ou Markdown da página")
+    c.set_defaults(func=cmd_cro)
+
+    # Fábrica de Criativos
+    cr = sub.add_parser("criativos", help="Fábrica de Criativos: ganchos virais, roteiros e pacotes para anúncios").add_subparsers(dest="acao", required=True)
+    c = cr.add_parser("ganchos", help="gera 10 ganchos de 3s divididos em 5 arquétipos")
+    c.add_argument("--produto", required=True)
+    c.add_argument("--publico")
+    c.add_argument("--extra")
+    c.set_defaults(func=cmd_criativos_ganchos)
+
+    c = cr.add_parser("roteiro", help="gera roteiro completo de anúncio em vídeo com indicações de cena e B-Roll")
+    c.add_argument("--produto", required=True)
+    c.add_argument("--publico")
+    c.add_argument("--formato", default="reels", help="reels, tiktok, shorts ou vsl")
+    c.add_argument("--extra")
+    c.set_defaults(func=cmd_criativos_roteiro)
+
+    c = cr.add_parser("pacote", help="gera pacote pronto para subir no Meta Ads (3 copys, 5 títulos, descrições e UTMs)")
+    c.add_argument("--produto", required=True)
+    c.add_argument("--publico")
+    c.add_argument("--preco")
+    c.add_argument("--extra")
+    c.set_defaults(func=cmd_criativos_pacote)
+
+    # Brand & Offer DNA
+    d = sub.add_parser("dna", help="Brand & Offer DNA: gerencia a identidade da marca, oferta e filtro anti-slop").add_subparsers(dest="acao", required=True)
+    c = d.add_parser("mostrar", help="exibe os dados atuais de DNA")
+    c.add_argument("categoria", nargs="?", choices=["avatar", "oferta", "marca", "anti_slop"])
+    c.set_defaults(func=cmd_dna)
+
+    c = d.add_parser("set", help="define ou atualiza um arquivo de DNA")
+    c.add_argument("categoria", choices=["avatar", "oferta", "marca", "anti_slop"])
+    c.add_argument("valor", help="texto ou caminho de arquivo")
+    c.set_defaults(func=cmd_dna)
+
+    c = d.add_parser("pasta", help="mostra o caminho da pasta de DNA")
+    c.set_defaults(func=cmd_dna)
+
+    c = d.add_parser("inicializar", help="cria os templates padrão de DNA em ~/.gargula/dna")
+    c.set_defaults(func=cmd_dna)
+
+    c = d.add_parser("reset", help="remove os arquivos de DNA")
+    c.set_defaults(func=cmd_dna)
+
+    # Início Rápido / Wizard
+    for nome in ("inicio", "wizard"):
+        c = sub.add_parser(nome, help="assistente interativo de configuração inicial no terminal")
+        c.set_defaults(func=cmd_inicio)
 
     c = sub.add_parser("provedores", help="lista as LLMs suportadas e se a chave está configurada")
     c.set_defaults(func=cmd_provedores)
