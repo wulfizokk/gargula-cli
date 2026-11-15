@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gargula-cli"
+dynamic = ["version"]
+description = "Copiloto de terminal para marketing digital, vendas online, automações de WhatsApp e Meta Ads, com qualquer LLM."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "Aldimar Júnior" }]
+keywords = ["cli", "llm", "marketing", "whatsapp", "meta-ads", "vendas", "ia"]
+classifiers = [
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: Portuguese (Brazilian)",
+  "Programming Language :: Python :: 3",
+]
+dependencies = []
+
+[project.scripts]
+gargula = "gargula.cli:main"
+
+[project.urls]
+Repository = "https://github.com/wulfizokk/gargula-cli"
+
+[tool.setuptools]
+packages = ["gargula"]
+
+[tool.setuptools.dynamic]
+version = { attr = "gargula.__version__" }
