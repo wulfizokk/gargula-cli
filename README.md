@@ -241,6 +241,12 @@ Para o plano comercial completo, estrutura de planos (Open Source vs Pro vs Suit
 
 ---
 
+## 🧠 A Mente do Gárgula (O Manifesto)
+
+A personalidade, os 7 mandamentos inegociáveis e a filosofia forjada na trincheira operacional e de segurança estão registrados em **[MINDSET.md](MINDSET.md)**.
+
+---
+
 ## 🔒 Segurança e Trava Anti-Ban
 
 * **Segredos Blindados:** O Gárgula nunca lê `.env`, `.secrets`, arquivos de credenciais ou chaves. O terminal do agente não herda variáveis com segredos.
