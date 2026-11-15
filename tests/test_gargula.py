@@ -56,6 +56,12 @@ class TestConfig(Base):
         self.assertEqual(config.resolver_llm()["modelo"], "gpt-x")
         self.assertEqual(config.resolver_llm("gemini")["modelo"], config.PROVEDORES["gemini"]["modelo"])
 
+    def test_workspace_anthropic(self):
+        self.assertIsNone(config.resolver_llm("anthropic")["workspace"])
+        with mock.patch.dict(os.environ, {"ANTHROPIC_WORKSPACE_ID": "wrkspc_1"}):
+            self.assertEqual(config.resolver_llm("anthropic")["workspace"], "wrkspc_1")
+            self.assertIsNone(config.resolver_llm("openai")["workspace"])
+
     def test_provedor_invalido(self):
         with self.assertRaises(ValueError):
             config.resolver_llm("nao-existe")
@@ -81,6 +87,7 @@ class TestLLM(unittest.TestCase):
         self.assertEqual(url, "https://o/v1/chat/completions")
         self.assertEqual(h["Authorization"], "Bearer k")
         self.assertEqual(c["messages"][0], {"role": "system", "content": "sis"})
+        self.assertEqual(c["max_tokens"], llm.MAX_TOKENS)  # evita o 402 do OpenRouter
 
     def test_gemini_troca_assistant_por_model(self):
         url, h, c = llm.montar_requisicao("gemini", "https://g/v1beta", "k", "gm", "sis", self.MSGS)

@@ -115,5 +115,8 @@ def resolver_llm(provedor: str | None = None, modelo: str | None = None,
     base = (base_url or os.environ.get("GARGULA_BASE_URL")
             or cfg.get(f"base_url.{nome}") or p["base"])
     chave = (os.environ.get(p["env"]) if p["env"] else None) or cfg.get(f"chave.{nome}")
+    # chave da Anthropic sem workspace vinculado exige o cabeçalho anthropic-workspace-id
+    workspace = (os.environ.get("ANTHROPIC_WORKSPACE_ID") or cfg.get("anthropic.workspace")
+                 if p["tipo"] == "anthropic" else None)
     return {"provedor": nome, "tipo": p["tipo"], "base": (base or "").rstrip("/"),
-            "modelo": modelo_final, "chave": chave, "env": p["env"]}
+            "modelo": modelo_final, "chave": chave, "env": p["env"], "workspace": workspace}

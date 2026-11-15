@@ -41,7 +41,8 @@ def montar_requisicao(tipo: str, base: str, chave: str | None, modelo: str,
         if chave:
             headers["Authorization"] = f"Bearer {chave}"
         headers["X-Title"] = "Gargula CLI"  # usado pelo OpenRouter, ignorado pelos demais
-        corpo = {"model": modelo, "stream": stream,
+        # sem max_tokens o OpenRouter reserva o máximo do modelo e recusa por falta de crédito
+        corpo = {"model": modelo, "stream": stream, "max_tokens": MAX_TOKENS,
                  "messages": [{"role": "system", "content": sistema}] + mensagens}
         return f"{base}/chat/completions", headers, corpo
     raise ErroLLM(f"tipo de API desconhecido: {tipo}")
@@ -108,6 +109,8 @@ def _mensagem_de_erro(e: urllib.error.HTTPError) -> str:
         msg = e.reason
     dica = {401: " (chave de API inválida ou ausente)", 403: " (sem permissão para este modelo)",
             404: " (modelo ou endereço não encontrado)", 429: " (limite de uso atingido)"}.get(e.code, "")
+    if "anthropic-workspace-id" in str(msg):
+        dica += " → defina ANTHROPIC_WORKSPACE_ID ou rode: gargula config set anthropic.workspace <id>"
     return f"HTTP {e.code}{dica}: {str(msg)[:300]}"
 
 
@@ -124,6 +127,8 @@ def conversar(llm: dict, sistema: str, mensagens: list[dict], stream: bool = Tru
         raise ErroLLM("modelo não definido: use --modelo ou gargula config set modelo <nome>")
     url, headers, corpo = montar_requisicao(llm["tipo"], llm["base"], llm.get("chave"),
                                             llm["modelo"], sistema, mensagens, stream)
+    if llm["tipo"] == "anthropic" and llm.get("workspace"):
+        headers["anthropic-workspace-id"] = llm["workspace"]
     req = urllib.request.Request(url, data=json.dumps(corpo).encode("utf-8"),
                                  headers=headers, method="POST")
     try:
