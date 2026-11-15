@@ -102,6 +102,7 @@ Sem token, exporte as métricas do Gerenciador de Anúncios e passe com `--arqui
 | Variável | Uso |
 |---|---|
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `GARGULA_API_KEY` | chaves das LLMs |
+| `ANTHROPIC_WORKSPACE_ID` | só para chave Anthropic sem workspace vinculado (erro 400 pedindo `anthropic-workspace-id`) |
 | `GARGULA_PROVEDOR`, `GARGULA_MODELO`, `GARGULA_BASE_URL` | LLM padrão |
 | `EVOLUTION_URL`, `EVOLUTION_INSTANCIA`, `EVOLUTION_API_KEY` | Evolution API |
 | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID` | WhatsApp Cloud API |
