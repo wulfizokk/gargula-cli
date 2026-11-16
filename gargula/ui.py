@@ -8,11 +8,12 @@ import sys
 import threading
 import time
 
-# Paleta roxa (RGB) e olhos Mangekyou
+# Paleta roxa (RGB), joia da fronte e olhos Mangekyou
 PALETA = {
     "D": (91, 33, 182),    # roxo escuro, armadura
     "P": (139, 92, 246),   # roxo chakra Susanoo
     "L": (196, 181, 253),  # lilás garras/aura
+    "W": (245, 243, 255),  # branco brilho da joia da testa
     "E": (245, 243, 255),  # branco brilho
     "R": (239, 68, 68),    # vermelho Mangekyou Sharingan
     "K": (20, 20, 25),     # pupila preta do Mangekyou
@@ -26,19 +27,20 @@ VERDE = (74, 222, 128)
 VERMELHO = PALETA["R"]
 PEDRA = PALETA["C"]
 
-# Gárgula Susanoo espiando sobre o quadro com olhos Mangekyou Sharingan e chifres altos.
+# Rosto do Susanoo (máscara Tengu de chakra roxo, chamas de energia, joia da fronte,
+# olhos Mangekyou Sharingan vermelhos e garras peeking sobre o quadro da CLI).
 # Cada linha = 1 pixel; duas linhas viram uma linha do terminal (meio-bloco).
 MASCOTE = [
-    ".P...................P.",
-    ".PP.................PP.",
-    "..PP.......P.......PP..",
-    "..PPP.....PPP.....PPP..",
-    ".PPPP...PPPPPPP...PPPP.",
-    "PPPPPP.PPPPPPPPP.PPPPPP",
-    "PPPPP.RKRPPPPPRKR.PPPPP",
-    "PPPP..RRRPPPPPRRR..PPPP",
-    ".......PPPPPPPPP.......",
-    ".LLL...PPPPPPPPP...LLL.",
+    ".P..P.......P.......P..P.",
+    ".PP.PP......P......PP.PP.",
+    "..PP.PP...P.P.P...PP.PP..",
+    ".PPPPPPP..PPPPP..PPPPPPP.",
+    "PPPPPPPP..PPWPP..PPPPPPPP",
+    "PPPPPPPP..PPWPP..PPPPPPPP",
+    "PPPP..RKRPPPPPPPRKR..PPPP",
+    "PPP...RRRPPPPPPPRRR...PPP",
+    "..........PPPPP..........",
+    ".LLL......PPPPP......LLL.",
 ]
 
 
