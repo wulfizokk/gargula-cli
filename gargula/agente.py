@@ -63,7 +63,9 @@ class Agente:
         if fora:
             detalhe += "\n(fora da pasta atual e da pasta base)"
         print(ui.pintar("  ┌ permissão: ", ui.LILAS, negrito=True, cor=self.cor) + nome)
-        for l in detalhe.splitlines()[:30]:
+        for l in detalhe.splitlines()[:15]:
+            if len(l) > 110:
+                l = l[:107] + "..."
             print(ui.pintar("  │ ", ui.ROXO, cor=self.cor) + l)
         opcoes = "[s]im / [n]ão" + (" / [t]odas desta sessão" if cat == "escrita" and not fora else "")
         try:

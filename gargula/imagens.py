@@ -64,3 +64,4 @@ def extrair_imagens(texto: str) -> tuple[str, list[dict]]:
         texto_limpo = "analise esta imagem"
 
     return texto_limpo, imagens
+

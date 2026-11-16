@@ -14,7 +14,8 @@ AJUDA = """Comandos:
   /modo <geral|copy|oferta|zap|ads|funil>   muda a especialidade
   /provedor <nome>                          troca a LLM (anthropic, openai, gemini, groq, ...)
   /modelo <nome>                            troca o modelo
-  /auto                                     liga/desliga aprovação automática (escrita e comandos)
+  /yolo                                     liga/desliga modo YOLO (aprovação automática)
+  /auto                                     sinônimo de /yolo
   /contexto                                 mostra os arquivos de instrução carregados (GARGULA.md, AGENTS.md...)
   /limpar                                   apaga o histórico da conversa
   /salvar [arquivo.md]                      salva a conversa em Markdown
@@ -49,7 +50,7 @@ def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: b
     except ValueError as e:
         ui.erro(str(e))
         return 2
-    print(ui.banner(__version__, llm["provedor"], llm["modelo"] or "?", modo))
+    ui.exibir_banner_inicial(__version__, llm["provedor"], llm["modelo"] or "?", modo, auto=auto)
     if not llm.get("chave") and llm["provedor"] not in ("ollama", "compativel"):
         ui.aviso(f"sem chave para {llm['provedor']}: defina {llm['env']} "
                  f"ou rode `gargula config set chave.{llm['provedor']} <chave>`")
@@ -59,7 +60,7 @@ def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: b
     if fixos:
         print(ui.pintar("  contexto: " + ", ".join(p.name for p in fixos), ui.CINZA))
     if auto:
-        ui.aviso("modo auto: escrita e comandos sem perguntar (WhatsApp sempre pergunta)")
+        ui.ok("modo YOLO ativado: escrita e comandos liberados (WhatsApp sempre pergunta)")
     cor = ui.usa_cor()
     seta = ui.pintar("❯ ", ui.ROXO, negrito=True, cor=cor)
 
@@ -100,9 +101,9 @@ def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: b
                     ui.ok(f"modelo: {arg}")
                 else:
                     print(llm["modelo"])
-            elif cmd == "auto":
+            elif cmd in ("auto", "yolo"):
                 agente.auto = not agente.auto
-                ui.ok("auto ligado" if agente.auto else "auto desligado: escrita e comandos pedem permissão")
+                ui.ok("modo YOLO ativado (escrita e comandos liberados)" if agente.auto else "modo seguro ativado: pede permissão")
             elif cmd == "contexto":
                 for p in contexto.arquivos_fixos() or []:
                     print(f"  {p}")

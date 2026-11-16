@@ -280,8 +280,13 @@ def _mensagem_de_erro(e: urllib.error.HTTPError) -> str:
 
 def conversar(llm: dict, sistema: str, mensagens: list[dict], ferramentas: list[dict] | None = None,
               ao_pedaco: Callable[[str], None] | None = None, stream: bool = True,
-              timeout: float = 300) -> dict:
-    """Uma rodada com a LLM. Devolve {"texto", "chamadas", "bruto", "parada"}."""
+              timeout: float = 300, _tentativas: int = 3) -> dict:
+    """Uma rodada com a LLM. Devolve {"texto", "chamadas", "bruto", "parada"}.
+
+    Retenta automaticamente em erros transientes (429, 502, 503, 529) com backoff.
+    """
+    import time as _time
+
     # ollama e servidores compatíveis locais podem rodar sem chave
     if not llm.get("chave") and llm["provedor"] not in ("ollama", "compativel"):
         onde = f"defina {llm['env']} ou rode: gargula config set chave.{llm['provedor']} <chave>"
@@ -294,31 +299,49 @@ def conversar(llm: dict, sistema: str, mensagens: list[dict], ferramentas: list[
                                             sistema, mensagens, stream, ferramentas)
     if llm["tipo"] == "anthropic" and llm.get("workspace"):
         headers["anthropic-workspace-id"] = llm["workspace"]
-    req = urllib.request.Request(url, data=json.dumps(corpo).encode("utf-8"), headers=headers, method="POST")
-    acc = Acumulador(llm["tipo"], ao_pedaco)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            if stream:
-                for evento in ler_sse(resp):
-                    acc.evento(evento)
-            else:
-                dados = json.loads(resp.read().decode("utf-8"))
-                if llm["tipo"] == "anthropic":
-                    for i, b in enumerate(dados.get("content", [])):
-                        if b.get("type") == "text":
-                            acc._txt(b.get("text", ""))
-                        elif b.get("type") == "tool_use":
-                            acc.blocos[i] = {"id": b["id"], "nome": b["name"], "json": b.get("input") or {}}
-                    acc.parada = dados.get("stop_reason")
+
+    _RETRIABLE = {429, 502, 503, 529}
+    ultimo_erro: ErroLLM | None = None
+
+    for tentativa in range(_tentativas):
+        req = urllib.request.Request(url, data=json.dumps(corpo).encode("utf-8"), headers=headers, method="POST")
+        acc = Acumulador(llm["tipo"], ao_pedaco)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if stream:
+                    for evento in ler_sse(resp):
+                        acc.evento(evento)
                 else:
-                    acc.evento(dados)
-    except urllib.error.HTTPError as e:
-        raise ErroLLM(_mensagem_de_erro(e)) from None
-    except urllib.error.URLError as e:
-        raise ErroLLM(f"não consegui conectar em {llm['base']}: {e.reason}") from None
-    except TimeoutError:
-        raise ErroLLM("a API demorou demais para responder") from None
-    return acc.resultado()
+                    dados = json.loads(resp.read().decode("utf-8"))
+                    if llm["tipo"] == "anthropic":
+                        for i, b in enumerate(dados.get("content", [])):
+                            if b.get("type") == "text":
+                                acc._txt(b.get("text", ""))
+                            elif b.get("type") == "tool_use":
+                                acc.blocos[i] = {"id": b["id"], "nome": b["name"], "json": b.get("input") or {}}
+                        acc.parada = dados.get("stop_reason")
+                    else:
+                        acc.evento(dados)
+            return acc.resultado()
+        except urllib.error.HTTPError as e:
+            if e.code in _RETRIABLE and tentativa < _tentativas - 1:
+                espera = (tentativa + 1) * 2  # 2s, 4s
+                ultimo_erro = ErroLLM(_mensagem_de_erro(e))
+                _time.sleep(espera)
+                continue
+            raise ErroLLM(_mensagem_de_erro(e)) from None
+        except urllib.error.URLError as e:
+            if tentativa < _tentativas - 1:
+                _time.sleep((tentativa + 1) * 2)
+                continue
+            raise ErroLLM(f"não consegui conectar em {llm['base']}: {e.reason}") from None
+        except TimeoutError:
+            if tentativa < _tentativas - 1:
+                _time.sleep(1)
+                continue
+            raise ErroLLM("a API demorou demais para responder") from None
+    # fallback (nunca deve chegar aqui)
+    raise ultimo_erro or ErroLLM("falha após tentativas esgotadas")
 
 
 def responder(llm: dict, sistema: str, mensagens: list[dict], ao_pedaco=None) -> str:

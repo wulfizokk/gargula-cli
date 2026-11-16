@@ -25,6 +25,7 @@ LILAS = PALETA["L"]
 CINZA = (148, 148, 160)
 VERDE = (74, 222, 128)
 VERMELHO = PALETA["R"]
+AMARELO = (251, 191, 36)
 PEDRA = PALETA["C"]
 
 # Máscara do Susanoo (capacete Kabuto fechado no topo com chifres, domo blindado,
@@ -162,7 +163,7 @@ def desenhar(sprite: list[str] | None = None, cor: bool = True, paleta: dict | N
     return saida
 
 
-def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None) -> str:
+def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None, auto: bool = False) -> str:
     """Quadro de boas-vindas com o Gárgula Susanoo e fumacinha de chakra saindo dos chifres."""
     if cor is None:
         cor = usa_cor()
@@ -180,7 +181,8 @@ def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None 
     titulo = pintar("Gárgula CLI", ROXO, negrito=True, cor=cor) + pintar(f"  v{versao}", CINZA, cor=cor)
     sub = "copiloto de marketing, vendas, WhatsApp e Meta Ads"
     info = f"{provedor} / {modelo}"
-    info2 = f"modo {modo}"
+    info2_cru = f"modo {modo}" + (" · YOLO" if auto else "")
+    info2 = pintar(f"modo {modo}", CINZA, cor=cor) + (pintar(" · ", CINZA, cor=cor) + pintar("⚡ YOLO", AMARELO, negrito=True, cor=cor) if auto else "")
     dica = "/ajuda · Ctrl+C interrompe · /sair"
 
     out = [recuo + pintar(s, LILAS, cor=cor) for s in FUMACA_ESTATICA]
@@ -190,13 +192,13 @@ def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None 
     out.append(linha(sub, pintar(sub, LILAS, cor=cor)))
     out.append(linha(""))
     out.append(linha(info[: largura - 2], pintar(info[: largura - 2], CINZA, cor=cor)))
-    out.append(linha(info2, pintar(info2, CINZA, cor=cor)))
+    out.append(linha(info2_cru, info2))
     out.append(linha(dica, pintar(dica, CINZA, cor=cor)))
     out.append(pintar("╰" + "─" * largura + "╯", ROXO, cor=cor))
     return "\n".join(out)
 
 
-def banner_animado(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None, frames: int = 14) -> None:
+def banner_animado(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None, frames: int = 14, auto: bool = False) -> None:
     """Animação de despertar no terminal: pulso roxo e fumacinha de chakra subindo em tempo real."""
     import math
 
@@ -215,7 +217,8 @@ def banner_animado(versao: str, provedor: str, modelo: str, modo: str, cor: bool
     titulo = pintar("Gárgula CLI", ROXO, negrito=True, cor=cor) + pintar(f"  v{versao}", CINZA, cor=cor)
     sub = "copiloto de marketing, vendas, WhatsApp e Meta Ads"
     info = f"{provedor} / {modelo}"
-    info2 = f"modo {modo}"
+    info2_cru = f"modo {modo}" + (" · YOLO" if auto else "")
+    info2 = pintar(f"modo {modo}", CINZA, cor=cor) + (pintar(" · ", CINZA, cor=cor) + pintar("⚡ YOLO", AMARELO, negrito=True, cor=cor) if auto else "")
     dica = "/ajuda · Ctrl+C interrompe · /sair"
 
     corpo_caixa = [
@@ -224,7 +227,7 @@ def banner_animado(versao: str, provedor: str, modelo: str, modo: str, cor: bool
         linha(sub, pintar(sub, LILAS, cor=cor)),
         linha(""),
         linha(info[: largura - 2], pintar(info[: largura - 2], CINZA, cor=cor)),
-        linha(info2, pintar(info2, CINZA, cor=cor)),
+        linha(info2_cru, info2),
         linha(dica, pintar(dica, CINZA, cor=cor)),
         pintar("╰" + "─" * largura + "╯", ROXO, cor=cor),
     ]
@@ -273,14 +276,14 @@ def banner_animado(versao: str, provedor: str, modelo: str, modo: str, cor: bool
         pass
 
 
-def exibir_banner_inicial(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None) -> None:
+def exibir_banner_inicial(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None, auto: bool = False) -> None:
     """Exibe animação de despertar no terminal interativo ou banner estático em pipes/scripts."""
     if cor is None:
         cor = usa_cor()
     if cor and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
-        banner_animado(versao, provedor, modelo, modo, cor=cor)
+        banner_animado(versao, provedor, modelo, modo, cor=cor, auto=auto)
     else:
-        print(banner(versao, provedor, modelo, modo, cor=cor))
+        print(banner(versao, provedor, modelo, modo, cor=cor, auto=auto))
 
 
 def _inline_markdown(texto: str, cor: bool) -> str:

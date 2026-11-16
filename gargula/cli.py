@@ -31,16 +31,24 @@ def _campos(**kv) -> str:
 
 # ---------- comandos ----------
 
+def _modo_auto(args) -> bool:
+    if getattr(args, "auto", False):
+        return True
+    val = config.obter("yolo") or config.obter("auto")
+    return str(val).lower() in ("true", "1", "yes", "sim", "s")
+
+
 def cmd_chat(args) -> int:
+    auto = _modo_auto(args)
     texto = " ".join(args.texto).strip()
     if not sys.stdin.isatty():
         entrada = sys.stdin.read().strip()
         texto = f"{texto}\n\n{entrada}".strip() if entrada else texto
     if not texto:
         from gargula import repl
-        return repl.rodar(args.provedor, args.modelo, args.modo, args.auto)
+        return repl.rodar(args.provedor, args.modelo, args.modo, auto)
     from gargula import agente
-    return agente.rodar_unico(_llm(args), texto, args.modo, args.auto)
+    return agente.rodar_unico(_llm(args), texto, args.modo, auto)
 
 
 def cmd_copy(args) -> int:
@@ -326,8 +334,8 @@ def montar_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"gargula {__version__}")
     p.add_argument("-p", "--provedor", help=f"LLM: {', '.join(config.PROVEDORES)}")
     p.add_argument("-m", "--modelo", help="modelo do provedor (ex.: gpt-4o-mini)")
-    p.add_argument("-y", "--auto", action="store_true",
-                   help="aprova escrita de arquivos e comandos sem perguntar (WhatsApp sempre pergunta)")
+    p.add_argument("-y", "--auto", "--yolo", dest="auto", action="store_true",
+                   help="modo YOLO: aprova escrita de arquivos e comandos sem perguntar (WhatsApp sempre pergunta)")
     sub = p.add_subparsers(dest="comando")
 
     c = sub.add_parser("chat", help="tarefa para o agente ou chat interativo (aceita texto por pipe)")
@@ -494,7 +502,7 @@ def main(argv=None) -> int:
     try:
         if not getattr(args, "func", None):
             from gargula import repl
-            return repl.rodar(args.provedor, args.modelo, "geral", args.auto)
+            return repl.rodar(args.provedor, args.modelo, "geral", _modo_auto(args))
         return args.func(args)
     except (ErroLLM, zap.ErroZap, ads.ErroAds, ValueError, FileNotFoundError) as e:
         ui.erro(str(e))

@@ -100,7 +100,7 @@ def definicoes_api() -> list[dict]:
 
 # ---------- utilidades ----------
 
-def caminho(c: str, escrever: bool = False) -> Path:
+def caminho(c: str) -> Path:
     if not c:
         raise ErroFerramenta("caminho vazio")
     p = Path(os.path.expanduser(c))
@@ -241,7 +241,7 @@ def meta_ads_insights(periodo: str = "last_7d", nivel: str = "campaign", conta: 
 
 
 def escrever_arquivo(caminho_: str, conteudo: str) -> str:
-    p = caminho(caminho_, escrever=True)
+    p = caminho(caminho_)
     existia = p.exists()
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(conteudo, encoding="utf-8")
@@ -249,7 +249,7 @@ def escrever_arquivo(caminho_: str, conteudo: str) -> str:
 
 
 def editar_arquivo(caminho_: str, antigo: str, novo: str, todas: bool = False) -> str:
-    p = caminho(caminho_, escrever=True)
+    p = caminho(caminho_)
     if not p.is_file():
         raise ErroFerramenta(f"arquivo não existe: {p}")
     texto = p.read_text(encoding="utf-8-sig")

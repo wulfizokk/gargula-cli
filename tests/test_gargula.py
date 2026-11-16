@@ -515,5 +515,49 @@ class TestCRM(Base):
         self.assertIn("Kit 10", s2)
 
 
+class TestUIExtras(unittest.TestCase):
+    def test_amarelo_definido(self):
+        self.assertIsNotNone(getattr(ui, "AMARELO", None))
+        self.assertEqual(ui.AMARELO, (251, 191, 36))
+
+    def test_banner_com_yolo(self):
+        txt = ui.banner("0.3.0", "anthropic", "claude-sonnet-5-5", "geral", cor=False, auto=True)
+        self.assertIn("YOLO", txt)
+
+
+class TestYoloEImagens(Base):
+    def test_yolo_via_config(self):
+        config.definir("yolo", "true")
+        parser = cli.montar_parser()
+        args = parser.parse_args([])
+        self.assertTrue(cli._modo_auto(args))
+
+    def test_yolo_via_flag(self):
+        parser = cli.montar_parser()
+        args = parser.parse_args(["--yolo"])
+        self.assertTrue(args.auto)
+        self.assertTrue(cli._modo_auto(args))
+
+    def test_multimodal_formatos_api(self):
+        imgs = [{"caminho": "x.png", "nome": "x.png", "mime": "image/png", "base64": "QUJD", "kb": 1}]
+        msgs = [{"role": "user", "content": "analisa isso", "imagens": imgs}]
+
+        ant = llm._msgs_anthropic(msgs)
+        self.assertEqual(ant[0]["role"], "user")
+        self.assertEqual(len(ant[0]["content"]), 2)
+        self.assertEqual(ant[0]["content"][0]["type"], "image")
+        self.assertEqual(ant[0]["content"][0]["source"]["data"], "QUJD")
+
+        oai = llm._msgs_openai(msgs)
+        self.assertEqual(oai[0]["role"], "user")
+        self.assertEqual(len(oai[0]["content"]), 2)
+        self.assertIn("data:image/png;base64,QUJD", oai[0]["content"][0]["image_url"]["url"])
+
+        gem = llm._msgs_gemini(msgs)
+        self.assertEqual(gem[0]["role"], "user")
+        self.assertEqual(gem[0]["parts"][0]["inline_data"]["mime_type"], "image/png")
+        self.assertEqual(gem[0]["parts"][0]["inline_data"]["data"], "QUJD")
+
+
 if __name__ == "__main__":
     unittest.main()
