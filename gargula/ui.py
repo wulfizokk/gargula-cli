@@ -242,14 +242,23 @@ def resposta(texto: str, cor: bool | None = None) -> None:
 
 
 class Pensando:
-    """Indicador animado e descartável enquanto a primeira resposta é montada."""
+    """Indicador animado estilo Claude Code/UltraCode com pulso roxo e fumacinha de chakra."""
 
     FRASES = (
         (0.0, "Lendo o contexto…"),
         (2.5, "Pensando na melhor resposta…"),
         (7.0, "Organizando os próximos passos…"),
     )
-    QUADROS = ("·  ", "•  ", "•• ", "•••", " ••", "  •")
+    PULSO_ROXO = (
+        (124, 58, 237),
+        (139, 92, 246),
+        (167, 139, 250),
+        (192, 132, 252),
+        (216, 180, 254),
+        (192, 132, 252),
+        (167, 139, 250),
+    )
+    FUMACA = (" ∿ ", " ~ ", " ° ", " · ", " ✧ ", " ~ ", " ∿ ", " ° ")
 
     def __init__(self, cor: bool | None = None):
         self.cor = usa_cor() if cor is None else cor
@@ -268,10 +277,13 @@ class Pensando:
 
     def _desenhar(self) -> None:
         i = 0
-        while not self._fim.wait(0.12):
-            quadro = self.QUADROS[i % len(self.QUADROS)]
-            status = pintar(f"✦ {self._frase()} {quadro}", CINZA, cor=self.cor)
-            sys.stdout.write("\r\x1b[2K" + status)
+        while not self._fim.wait(0.10):
+            cor_pulso = self.PULSO_ROXO[i % len(self.PULSO_ROXO)]
+            fumaca = self.FUMACA[i % len(self.FUMACA)]
+            spark = pintar("✦", cor_pulso, negrito=True, cor=self.cor)
+            wisp = pintar(fumaca, LILAS, cor=self.cor)
+            frase = pintar(self._frase(), cor_pulso, cor=self.cor)
+            sys.stdout.write("\r\x1b[2K" + f"{spark}{wisp}{frase}")
             sys.stdout.flush()
             i += 1
 

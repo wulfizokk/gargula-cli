@@ -1,5 +1,9 @@
 # Gárgula CLI
 
+<div align="center">
+  <img src="assets/gargula.gif" alt="Gárgula CLI Susanoo" width="620" />
+</div>
+
 ```
               █▄   ▄███████████▄   ▄█
              ▄███████████████████████▄
