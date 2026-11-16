@@ -44,6 +44,32 @@ MASCOTE = [
 ]
 
 
+# Fumacinha de chakra do Susanoo saindo dos chifres
+FUMACA_ESTATICA = (
+    "    ~                 ~  ",
+    "   °    ~   ·   ~    °   ",
+)
+
+FUMACA_QUADROS = (
+    (
+        "    ~                 ~  ",
+        "   °    ~   ·   ~    °   ",
+    ),
+    (
+        "   ·    °         °    · ",
+        "    ~     ·   ·     ~    ",
+    ),
+    (
+        "   °        ~        °   ",
+        "  ·    ~    °    ~    ·  ",
+    ),
+    (
+        "  ~     ·       ·     ~  ",
+        "   °      ~   ~      °   ",
+    ),
+)
+
+
 def preparar_terminal() -> None:
     """UTF-8 na saída e sequências ANSI ligadas no Windows."""
     for fluxo in (sys.stdout, sys.stderr):
@@ -93,10 +119,11 @@ def pintar(texto: str, rgb=ROXO, negrito: bool = False, cor: bool | None = None)
     return ("\x1b[1m" if negrito else "") + _fg(rgb) + texto + RESET
 
 
-def desenhar(sprite: list[str] | None = None, cor: bool = True) -> list[str]:
+def desenhar(sprite: list[str] | None = None, cor: bool = True, paleta: dict | None = None) -> list[str]:
     """Converte a grade de pixels em linhas de meio-bloco (▀ ▄ █)."""
     if sprite is None:
         sprite = MASCOTE
+    p = paleta or PALETA
     largura = max(len(l) for l in sprite)
     linhas = [l.ljust(largura, ".") for l in sprite]
     if len(linhas) % 2:
@@ -119,7 +146,7 @@ def desenhar(sprite: list[str] | None = None, cor: bool = True) -> list[str]:
                 else:
                     partes.append(" ")
                 continue
-            ca, cb = PALETA.get(a), PALETA.get(b)
+            ca, cb = p.get(a), p.get(b)
             if ca and cb:
                 if ca == cb:
                     partes.append(_fg(ca) + "█" + RESET)
@@ -136,7 +163,7 @@ def desenhar(sprite: list[str] | None = None, cor: bool = True) -> list[str]:
 
 
 def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None) -> str:
-    """Quadro de boas-vindas com o Gárgula sentado em cima."""
+    """Quadro de boas-vindas com o Gárgula Susanoo e fumacinha de chakra saindo dos chifres."""
     if cor is None:
         cor = usa_cor()
     largura = 58  # largura interna do quadro
@@ -156,7 +183,8 @@ def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None 
     info2 = f"modo {modo}"
     dica = "/ajuda · Ctrl+C interrompe · /sair"
 
-    out = [recuo + l for l in sprite]
+    out = [recuo + pintar(s, LILAS, cor=cor) for s in FUMACA_ESTATICA]
+    out.extend(recuo + l for l in sprite)
     out.append(pintar("╭" + "─" * largura + "╮", ROXO, cor=cor))
     out.append(linha(titulo_cru, titulo))
     out.append(linha(sub, pintar(sub, LILAS, cor=cor)))
@@ -166,6 +194,93 @@ def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None 
     out.append(linha(dica, pintar(dica, CINZA, cor=cor)))
     out.append(pintar("╰" + "─" * largura + "╯", ROXO, cor=cor))
     return "\n".join(out)
+
+
+def banner_animado(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None, frames: int = 14) -> None:
+    """Animação de despertar no terminal: pulso roxo e fumacinha de chakra subindo em tempo real."""
+    import math
+
+    if cor is None:
+        cor = usa_cor()
+    largura = 58
+    larg_sprite = len(MASCOTE[0])
+    recuo = " " * (1 + (largura - larg_sprite) // 2)
+
+    def linha(txt_cru: str, txt_cor: str | None = None) -> str:
+        espaco = " " * max(0, largura - 2 - len(txt_cru))
+        borda = pintar("│", ROXO, cor=cor)
+        return f"{borda}  {txt_cor if txt_cor is not None else txt_cru}{espaco}{borda}"
+
+    titulo_cru = f"Gárgula CLI  v{versao}"
+    titulo = pintar("Gárgula CLI", ROXO, negrito=True, cor=cor) + pintar(f"  v{versao}", CINZA, cor=cor)
+    sub = "copiloto de marketing, vendas, WhatsApp e Meta Ads"
+    info = f"{provedor} / {modelo}"
+    info2 = f"modo {modo}"
+    dica = "/ajuda · Ctrl+C interrompe · /sair"
+
+    corpo_caixa = [
+        pintar("╭" + "─" * largura + "╮", ROXO, cor=cor),
+        linha(titulo_cru, titulo),
+        linha(sub, pintar(sub, LILAS, cor=cor)),
+        linha(""),
+        linha(info[: largura - 2], pintar(info[: largura - 2], CINZA, cor=cor)),
+        linha(info2, pintar(info2, CINZA, cor=cor)),
+        linha(dica, pintar(dica, CINZA, cor=cor)),
+        pintar("╰" + "─" * largura + "╯", ROXO, cor=cor),
+    ]
+
+    total_linhas = len(FUMACA_ESTATICA) + (len(MASCOTE) + 1) // 2 + len(corpo_caixa)
+
+    def _lerp(c1, c2, t):
+        return tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
+
+    fps = 12
+    dt = 1.0 / fps
+
+    try:
+        for i in range(frames):
+            angle = (i / frames) * 2 * math.pi
+            pulse = 0.5 + 0.5 * math.sin(angle)
+            eye_pulse = 0.5 + 0.5 * math.cos(angle * 1.5)
+
+            c_p = _lerp((110, 45, 200), (175, 115, 255), pulse)
+            c_l = _lerp((170, 130, 230), (220, 190, 255), pulse)
+            c_w = _lerp((210, 210, 240), (255, 255, 255), pulse)
+            c_r = _lerp((200, 30, 30), (255, 75, 75), eye_pulse)
+
+            paleta_frame = dict(PALETA)
+            paleta_frame["P"] = c_p
+            paleta_frame["L"] = c_l
+            paleta_frame["W"] = c_w
+            paleta_frame["R"] = c_r
+
+            smoke = FUMACA_QUADROS[i % len(FUMACA_QUADROS)]
+            linhas_topo = [recuo + pintar(s, c_l, cor=cor) for s in smoke]
+            sprite_linhas = desenhar(cor=cor, paleta=paleta_frame)
+            linhas_topo.extend(recuo + l for l in sprite_linhas)
+
+            todas = linhas_topo + corpo_caixa
+            if i == 0:
+                sys.stdout.write("\n".join(todas) + "\n")
+                sys.stdout.flush()
+            else:
+                sys.stdout.write(f"\x1b[{total_linhas}A")
+                for l in todas:
+                    sys.stdout.write("\r\x1b[2K" + l + "\n")
+                sys.stdout.flush()
+            time.sleep(dt)
+    except KeyboardInterrupt:
+        pass
+
+
+def exibir_banner_inicial(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None) -> None:
+    """Exibe animação de despertar no terminal interativo ou banner estático em pipes/scripts."""
+    if cor is None:
+        cor = usa_cor()
+    if cor and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+        banner_animado(versao, provedor, modelo, modo, cor=cor)
+    else:
+        print(banner(versao, provedor, modelo, modo, cor=cor))
 
 
 def _inline_markdown(texto: str, cor: bool) -> str:
@@ -242,23 +357,26 @@ def resposta(texto: str, cor: bool | None = None) -> None:
 
 
 class Pensando:
-    """Indicador animado estilo Claude Code/UltraCode com pulso roxo e fumacinha de chakra."""
+    """Spinner minimalista a prova de bala para Windows Terminal.
+
+    Nao usa \\x1b[2K (bugado em wrap no WT), nao usa Unicode ambiguo.
+    So \\r + texto + pad de espacos. Nunca ultrapassa a largura do terminal.
+    """
 
     FRASES = (
-        (0.0, "Lendo o contexto…"),
-        (2.5, "Pensando na melhor resposta…"),
-        (7.0, "Organizando os próximos passos…"),
+        (0.0, "pensando"),
+        (3.0, "quase la"),
+        (8.0, "organizando"),
     )
-    PULSO_ROXO = (
+    PULSO = (
         (124, 58, 237),
         (139, 92, 246),
         (167, 139, 250),
-        (192, 132, 252),
-        (216, 180, 254),
-        (192, 132, 252),
+        (196, 160, 255),
         (167, 139, 250),
+        (139, 92, 246),
     )
-    FUMACA = (" ∿ ", " ~ ", " ° ", " · ", " ✧ ", " ~ ", " ∿ ", " ° ")
+    DOTS = (" .  ", " .. ", " ...", "  ..", "   .", "    ")
 
     def __init__(self, cor: bool | None = None):
         self.cor = usa_cor() if cor is None else cor
@@ -268,22 +386,31 @@ class Pensando:
         self._inicio = 0.0
 
     def _frase(self) -> str:
-        decorrido = time.monotonic() - self._inicio
-        atual = self.FRASES[0][1]
-        for limite, frase in self.FRASES:
-            if decorrido >= limite:
-                atual = frase
-        return atual
+        t = time.monotonic() - self._inicio
+        txt = self.FRASES[0][1]
+        for lim, f in self.FRASES:
+            if t >= lim:
+                txt = f
+        return txt
 
     def _desenhar(self) -> None:
+        import shutil
+
         i = 0
-        while not self._fim.wait(0.10):
-            cor_pulso = self.PULSO_ROXO[i % len(self.PULSO_ROXO)]
-            fumaca = self.FUMACA[i % len(self.FUMACA)]
-            spark = pintar("✦", cor_pulso, negrito=True, cor=self.cor)
-            wisp = pintar(fumaca, LILAS, cor=self.cor)
-            frase = pintar(self._frase(), cor_pulso, cor=self.cor)
-            sys.stdout.write("\r\x1b[2K" + f"{spark}{wisp}{frase}")
+        while not self._fim.wait(0.15):
+            cols = shutil.get_terminal_size((80, 24)).columns
+            safe = max(10, cols - 2)  # margem de seguranca
+            c = self.PULSO[i % len(self.PULSO)]
+            dots = self.DOTS[i % len(self.DOTS)]
+            # Texto visivel puro (sem ANSI) para medir
+            vis = f"  {self._frase()}{dots}"
+            if len(vis) > safe:
+                vis = vis[:safe]
+            # Aplica cor
+            colored = pintar(vis, c, cor=self.cor)
+            # \r volta ao inicio, texto + espacos apaga residuo, \r final reposiciona
+            pad = " " * max(0, safe - len(vis))
+            sys.stdout.write(f"\r{colored}{pad}\r")
             sys.stdout.flush()
             i += 1
 
@@ -293,15 +420,18 @@ class Pensando:
             self._thread = threading.Thread(target=self._desenhar, daemon=True)
             self._thread.start()
         else:
-            print("✦ Pensando…")
+            print("  pensando...")
         return self
 
     def parar(self) -> None:
+        import shutil
+
         self._fim.set()
         if self._thread:
             self._thread.join(timeout=0.5)
         if self.animar:
-            sys.stdout.write("\r\x1b[2K")
+            cols = shutil.get_terminal_size((80, 24)).columns
+            sys.stdout.write("\r" + " " * min(cols - 1, 60) + "\r")
             sys.stdout.flush()
 
     def __exit__(self, *_):

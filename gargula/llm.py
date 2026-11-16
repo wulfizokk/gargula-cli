@@ -33,11 +33,34 @@ class ErroLLM(Exception):
 
 # ---------- conversão do histórico ----------
 
+def _blocos_imagem_anthropic(imagens: list[dict]) -> list[dict]:
+    """Converte imagens internas em blocos Anthropic vision."""
+    return [{"type": "image", "source": {"type": "base64", "media_type": img["mime"], "data": img["base64"]}}
+            for img in imagens]
+
+
+def _blocos_imagem_openai(imagens: list[dict]) -> list[dict]:
+    """Converte imagens internas em blocos OpenAI vision."""
+    return [{"type": "image_url", "image_url": {"url": f"data:{img['mime']};base64,{img['base64']}"}}
+            for img in imagens]
+
+
+def _partes_imagem_gemini(imagens: list[dict]) -> list[dict]:
+    """Converte imagens internas em parts Gemini vision."""
+    return [{"inline_data": {"mime_type": img["mime"], "data": img["base64"]}}
+            for img in imagens]
+
+
 def _msgs_anthropic(mensagens: list[dict]) -> list[dict]:
     out = []
     for m in mensagens:
         if m["role"] == "user":
-            out.append({"role": "user", "content": m["content"]})
+            imgs = m.get("imagens")
+            if imgs:
+                blocos = _blocos_imagem_anthropic(imgs) + [{"type": "text", "text": m["content"]}]
+                out.append({"role": "user", "content": blocos})
+            else:
+                out.append({"role": "user", "content": m["content"]})
         elif m["role"] == "assistant":
             blocos = [{"type": "text", "text": m["content"]}] if m.get("content") else []
             blocos += [{"type": "tool_use", "id": c["id"], "name": c["nome"], "input": c["args"]}
@@ -54,7 +77,12 @@ def _msgs_openai(mensagens: list[dict]) -> list[dict]:
     out = []
     for m in mensagens:
         if m["role"] == "user":
-            out.append({"role": "user", "content": m["content"]})
+            imgs = m.get("imagens")
+            if imgs:
+                blocos = _blocos_imagem_openai(imgs) + [{"type": "text", "text": m["content"]}]
+                out.append({"role": "user", "content": blocos})
+            else:
+                out.append({"role": "user", "content": m["content"]})
         elif m["role"] == "assistant":
             d = {"role": "assistant", "content": m.get("content") or None}
             if m.get("chamadas"):
@@ -73,7 +101,12 @@ def _msgs_gemini(mensagens: list[dict]) -> list[dict]:
     out = []
     for m in mensagens:
         if m["role"] == "user":
-            out.append({"role": "user", "parts": [{"text": m["content"]}]})
+            imgs = m.get("imagens")
+            if imgs:
+                partes = _partes_imagem_gemini(imgs) + [{"text": m["content"]}]
+                out.append({"role": "user", "parts": partes})
+            else:
+                out.append({"role": "user", "parts": [{"text": m["content"]}]})
         elif m["role"] == "assistant":
             # partes originais preservam o thoughtSignature exigido pelo Gemini com ferramentas
             partes = m.get("bruto") or (

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from gargula import __version__, config, contexto, prompts, ui
 from gargula.agente import Agente
+from gargula.imagens import extrair_imagens
 from gargula.llm import ErroLLM
 
 AJUDA = """Comandos:
@@ -117,7 +118,11 @@ def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: b
 
         print()
         try:
-            agente.turno(texto)
+            texto_limpo, imgs = extrair_imagens(texto)
+            if imgs:
+                nomes = ", ".join(f"{i['nome']} ({i['kb']} KB)" for i in imgs)
+                ui.ok(f"{len(imgs)} imagem(ns): {nomes}")
+            agente.turno(texto_limpo, imagens=imgs if imgs else None)
         except KeyboardInterrupt:
             print()
             ui.aviso("interrompido")

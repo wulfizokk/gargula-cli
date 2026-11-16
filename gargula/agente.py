@@ -81,8 +81,11 @@ class Agente:
                                                       " Pergunte como prefere seguir.")
 
     # ---------- turno ----------
-    def turno(self, texto: str) -> str:
-        self.historico.append({"role": "user", "content": texto})
+    def turno(self, texto: str, imagens: list[dict] | None = None) -> str:
+        msg_user: dict = {"role": "user", "content": texto}
+        if imagens:
+            msg_user["imagens"] = imagens
+        self.historico.append(msg_user)
         defs = ferramentas.definicoes_api() if self.com_ferramentas else None
         final = ""
         for _ in range(MAX_PASSOS):
