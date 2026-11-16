@@ -27,14 +27,14 @@ VERDE = (74, 222, 128)
 VERMELHO = PALETA["R"]
 PEDRA = PALETA["C"]
 
-# Rosto do Susanoo (máscara Tengu de chakra roxo, chamas de energia, joia da fronte,
-# olhos Mangekyou Sharingan vermelhos e garras peeking sobre o quadro da CLI).
+# Máscara do Susanoo (capacete Kabuto fechado no topo com chifres, domo blindado,
+# joia da fronte, olhos Mangekyou Sharingan vermelhos e garras peeking sobre o quadro).
 # Cada linha = 1 pixel; duas linhas viram uma linha do terminal (meio-bloco).
 MASCOTE = [
-    ".P..P.......P.......P..P.",
-    ".PP.PP......P......PP.PP.",
-    "..PP.PP...P.P.P...PP.PP..",
-    ".PPPPPPP..PPPPP..PPPPPPP.",
+    ".P.....PPPPPPPPPPP.....P.",
+    ".PP...PPPPPPPPPPPPP...PP.",
+    ".PPPPPPPPPPPPPPPPPPPPPPP.",
+    "PPPPPPPPPPPPPPPPPPPPPPPPP",
     "PPPPPPPP..PPWPP..PPPPPPPP",
     "PPPPPPPP..PPWPP..PPPPPPPP",
     "PPPP..RKRPPPPPPPRKR..PPPP",
