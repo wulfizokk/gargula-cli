@@ -8,12 +8,14 @@ import sys
 import threading
 import time
 
-# Paleta roxa (RGB)
+# Paleta roxa (RGB) e olhos Mangekyou
 PALETA = {
-    "D": (91, 33, 182),    # asas/costas, roxo escuro
-    "P": (139, 92, 246),   # corpo, roxo
-    "L": (196, 181, 253),  # garras/peito, lilás
-    "E": (245, 243, 255),  # olho brilhando, branco
+    "D": (91, 33, 182),    # roxo escuro, armadura
+    "P": (139, 92, 246),   # roxo chakra Susanoo
+    "L": (196, 181, 253),  # lilás garras/aura
+    "E": (245, 243, 255),  # branco brilho
+    "R": (239, 68, 68),    # vermelho Mangekyou Sharingan
+    "K": (20, 20, 25),     # pupila preta do Mangekyou
     "C": (100, 116, 139),  # cornija/pedra, slate cinza
     "B": (71, 85, 105),    # fachada/prédio, slate escuro
 }
@@ -21,21 +23,22 @@ ROXO = PALETA["P"]
 LILAS = PALETA["L"]
 CINZA = (148, 148, 160)
 VERDE = (74, 222, 128)
+VERMELHO = PALETA["R"]
 PEDRA = PALETA["C"]
 
-# Gárgula de perfil sentado na cornija de um edifício (estilo Batman vigilante).
+# Gárgula Susanoo espiando sobre o quadro com olhos Mangekyou Sharingan e chifres altos.
 # Cada linha = 1 pixel; duas linhas viram uma linha do terminal (meio-bloco).
 MASCOTE = [
-    "....PP.....D....",
-    "...PEPP...DDD...",
-    "..PPPPPDDDDDD...",
-    ".PPPPPDDDDDDD...",
-    "LLPPPPPDDDDDD...",
-    ".LL.PPPDDDDD....",
-    "CCCCCCCCCCCCCCCC",
-    ".CCCCCCCCCCCCCC.",
-    "..BBBB....BBBB..",
-    "..BBBB....BBBB..",
+    ".P...................P.",
+    ".PP.................PP.",
+    "..PP.......P.......PP..",
+    "..PPP.....PPP.....PPP..",
+    ".PPPP...PPPPPPP...PPPP.",
+    "PPPPPP.PPPPPPPPP.PPPPPP",
+    "PPPPP.RKRPPPPPRKR.PPPPP",
+    "PPPP..RRRPPPPPRRR..PPPP",
+    ".......PPPPPPPPP.......",
+    ".LLL...PPPPPPPPP...LLL.",
 ]
 
 
@@ -103,8 +106,8 @@ def desenhar(sprite: list[str] | None = None, cor: bool = True) -> list[str]:
         for a, b in zip(cima, baixo):
             if not cor:
                 # sem cor os olhos viram buracos para continuarem visíveis
-                a = "." if a == "E" else a
-                b = "." if b == "E" else b
+                a = "." if a in ("E", "R", "K") else a
+                b = "." if b in ("E", "R", "K") else b
                 if a != "." and b != ".":
                     partes.append("█")
                 elif a != ".":
