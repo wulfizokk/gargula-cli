@@ -7,10 +7,21 @@ import platform
 import sys
 from datetime import datetime
 
-from gargula import contexto, ferramentas, prompts, ui
+from gargula import config, contexto, ferramentas, prompts, ui
 from gargula.llm import ErroLLM, conversar
 
-MAX_PASSOS = 40
+MAX_PASSOS_PADRAO = 200
+
+
+def _max_passos() -> int:
+    """Lê max_passos do config (0 = ilimitado). Padrão: 200."""
+    v = config.carregar().get("max_passos")
+    if v is not None:
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            pass
+    return MAX_PASSOS_PADRAO
 
 
 def _compactar_imagens_antigas(historico: list[dict], manter: int = 2) -> None:
@@ -65,25 +76,35 @@ class Agente:
             return True, ""
         if not sys.stdin.isatty():
             return False, "sem permissão: rode no terminal interativo ou use --auto"
+        # ── detalhes extras (só o que não aparece no resumo_chamada) ──
         detalhe = ""
         if nome == "executar":
-            detalhe = args.get("comando", "")
+            cmd = args.get("comando", "")
+            if len(cmd) > 90 or "\n" in cmd:
+                detalhe = cmd
         elif nome == "whatsapp_enviar":
             detalhe = f"para {args.get('para')}:\n{args.get('texto', '')}"
         elif nome == "editar_arquivo":
-            detalhe = f"{args.get('caminho')}\n- {args.get('antigo', '')[:400]}\n+ {args.get('novo', '')[:400]}"
+            detalhe = f"- {args.get('antigo', '')[:400]}\n+ {args.get('novo', '')[:400]}"
         elif nome == "escrever_arquivo":
             detalhe = f"{args.get('caminho')} ({len(str(args.get('conteudo', '')).splitlines())} linhas)"
         if fora:
-            detalhe += "\n(fora da pasta atual e da pasta base)"
-        print(ui.pintar("  ┌ permissão: ", ui.LILAS, negrito=True, cor=self.cor) + nome)
-        for l in detalhe.splitlines()[:15]:
-            if len(l) > 110:
-                l = l[:107] + "..."
-            print(ui.pintar("  │ ", ui.ROXO, cor=self.cor) + l)
-        opcoes = "[s]im / [n]ão" + (" / [t]odas desta sessão" if cat == "escrita" and not fora else "")
+            detalhe += "\n⚠ fora da pasta atual e da pasta base"
+        if detalhe.strip():
+            for l in detalhe.strip().splitlines()[:15]:
+                if len(l) > 110:
+                    l = l[:107] + "..."
+                print(ui.pintar("    │ ", ui.PEDRA, cor=self.cor) + l)
+        # ── prompt inline: s · n · t › ──
+        sim = ui.pintar("s", ui.VERDE, negrito=True, cor=self.cor)
+        nao = ui.pintar("n", ui.VERMELHO, negrito=True, cor=self.cor)
+        sep = ui.pintar(" · ", ui.PEDRA, cor=self.cor)
+        opcoes = sim + sep + nao
+        if cat == "escrita" and not fora:
+            opcoes += sep + ui.pintar("t", ui.AMARELO, negrito=True, cor=self.cor)
+        seta = ui.pintar(" › ", ui.LILAS, negrito=True, cor=self.cor)
         try:
-            r = input(ui.pintar(f"  └ permitir? {opcoes}: ", ui.LILAS, cor=self.cor)).strip().lower()
+            r = input(ui.pintar("    permitir? ", ui.LILAS, cor=self.cor) + opcoes + seta).strip().lower()
         except EOFError:
             r = "n"
         if r in ("t", "todas", "todos") and cat == "escrita" and not fora:
@@ -91,7 +112,8 @@ class Agente:
             return True, ""
         if r in ("s", "sim", "y", "yes"):
             return True, ""
-        motivo = input(ui.pintar("  └ quer dizer o que fazer em vez disso? (enter pula): ", ui.CINZA, cor=self.cor)).strip() \
+        motivo = input(ui.pintar("    instruções? ", ui.CINZA, cor=self.cor)
+                       + ui.pintar("› ", ui.LILAS, cor=self.cor)).strip() \
             if sys.stdin.isatty() else ""
         return False, "o usuário NEGOU esta ação." + (f" Instrução dele: {motivo}" if motivo else
                                                       " Pergunte como prefere seguir.")
@@ -107,7 +129,10 @@ class Agente:
         defs = ferramentas.definicoes_api() if self.com_ferramentas else None
         sistema = self.sistema()
         final = ""
-        for _ in range(MAX_PASSOS):
+        limite = _max_passos()
+        passo = 0
+        while limite == 0 or passo < limite:
+            passo += 1
             with ui.pensando(cor=self.cor):
                 r = conversar(self.llm, sistema, self.historico, defs)
             self.historico.append({"role": "assistant", "content": r["texto"],
@@ -123,7 +148,7 @@ class Agente:
             resultados = []
             try:
                 for c in r["chamadas"]:
-                    print(ui.pintar("  ⏺ ", ui.ROXO, negrito=True, cor=self.cor)
+                    print(ui.pintar("  ▸ ", ui.ROXO, negrito=True, cor=self.cor)
                           + ui.pintar(ferramentas.resumo_chamada(c["nome"], c["args"]), ui.LILAS, cor=self.cor))
                     ok, motivo = self.permitido(c["nome"], c["args"])
                     if ok:
@@ -143,7 +168,7 @@ class Agente:
                 self.historico.append({"role": "ferramenta", "resultados": resultados})
                 raise
             self.historico.append({"role": "ferramenta", "resultados": resultados})
-        ui.aviso(f"parei depois de {MAX_PASSOS} passos; diga 'continue' para seguir")
+        ui.aviso(f"parei depois de {limite} passos; diga 'continue' para seguir")
         self._inicio_turno = None
         return final
 
