@@ -432,6 +432,45 @@ def pensando(cor: bool | None = None) -> Pensando:
     return Pensando(cor=cor)
 
 
+def ler_tecla() -> str:
+    """Lê uma única tecla sem precisar de Enter (TTY only, stdlib puro)."""
+    if not (hasattr(sys.stdin, "isatty") and sys.stdin.isatty()):
+        try:
+            return input().strip()[:1].lower()
+        except EOFError:
+            return ""
+    try:
+        if os.name == "nt":
+            import msvcrt
+            ch = msvcrt.getwch()
+            if ch in ("\x00", "\xe0"):  # tecla especial (setas, F1-F12)
+                msvcrt.getwch()         # consumir segundo byte
+                return ""
+            if ch == "\x03":            # Ctrl+C
+                raise KeyboardInterrupt
+            return ch.lower()
+        # Unix/macOS
+        import tty
+        import termios
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        if ch == "\x03":
+            raise KeyboardInterrupt
+        if ch == "\x1b":  # escape (setas etc)
+            return ""
+        return ch.lower()
+    except (ImportError, OSError):
+        try:
+            return input().strip()[:1].lower()
+        except EOFError:
+            return ""
+
+
 def erro(msg: str) -> None:
     print(pintar("✖ ", (248, 113, 113), cor=usa_cor(sys.stderr)) + msg, file=sys.stderr)
 

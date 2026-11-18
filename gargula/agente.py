@@ -95,24 +95,35 @@ class Agente:
                 if len(l) > 110:
                     l = l[:107] + "..."
                 print(ui.pintar("    │ ", ui.PEDRA, cor=self.cor) + l)
-        # ── prompt limpo: Enter = sim ──
-        opcoes = "s/n" + ("/t" if cat == "escrita" and not fora else "")
+        # ── tecla única: Enter/s = sim, n = não, t = todas ──
+        hint = "enter" + ("/t" if cat == "escrita" and not fora else "") + "/n"
+        sys.stdout.write(ui.pintar(f"    rodar? ", ui.LILAS, cor=self.cor)
+                         + ui.pintar(f"({hint}) ", ui.PEDRA, cor=self.cor)
+                         + ui.pintar("▸ ", ui.LILAS, negrito=True, cor=self.cor))
+        sys.stdout.flush()
         try:
-            r = input(ui.pintar(f"    permitir? ({opcoes}) › ", ui.LILAS, cor=self.cor)).strip().lower()
-        except EOFError:
-            r = "n"
-        if r in ("", "s", "sim", "y", "yes"):
+            ch = ui.ler_tecla()
+        except KeyboardInterrupt:
+            print(ui.pintar("cancelado", ui.VERMELHO, cor=self.cor))
+            raise
+        if ch in ("\r", "\n", "", "s", "y"):
+            print(ui.pintar("sim", ui.VERDE, cor=self.cor))
             return True, ""
-        if r in ("t", "todas", "todos") and cat == "escrita" and not fora:
+        if ch == "t" and cat == "escrita" and not fora:
+            print(ui.pintar("todas ✔", ui.AMARELO, cor=self.cor))
             self.liberadas.add(nome)
             return True, ""
-        if r in ("n", "nao", "não", "no"):
-            motivo = input(ui.pintar("    instruções? (enter pula) › ", ui.CINZA, cor=self.cor)).strip() \
-                if sys.stdin.isatty() else ""
+        if ch == "n":
+            print(ui.pintar("não", ui.VERMELHO, cor=self.cor))
+            try:
+                motivo = input(ui.pintar("    instruções? › ", ui.CINZA, cor=self.cor)).strip()
+            except (EOFError, KeyboardInterrupt):
+                motivo = ""
             return False, "o usuário NEGOU esta ação." + (f" Instrução dele: {motivo}" if motivo else
                                                           " Pergunte como prefere seguir.")
-        # qualquer outra coisa = tratou como instrução direta
-        return False, f"o usuário NEGOU esta ação. Instrução dele: {r}"
+        # qualquer outra tecla = sim (benefício da dúvida)
+        print(ui.pintar("sim", ui.VERDE, cor=self.cor))
+        return True, ""
 
     # ---------- turno ----------
     def turno(self, texto: str, imagens: list[dict] | None = None) -> str:
