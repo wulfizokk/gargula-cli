@@ -12,7 +12,7 @@ from gargula.llm import ErroLLM
 
 AJUDA = """Comandos:
   /modo <geral|copy|oferta|zap|ads|funil>   muda a especialidade
-  /provedor <nome>                          troca a LLM (anthropic, openai, gemini, groq, ...)
+  /provedor <nome>                          troca a LLM (drael, anthropic, openai, gemini, groq, ...)
   /modelo <nome>                            troca o modelo
   /yolo                                     liga/desliga modo YOLO (aprovação automática)
   /auto                                     sinônimo de /yolo
@@ -38,8 +38,32 @@ def salvar_conversa(historico: list[dict], destino: str | None) -> Path:
     p = Path(destino or f"gargula-{datetime.now():%Y%m%d-%H%M}.md")
     partes = ["# Conversa com o Gárgula\n"]
     for m in historico:
-        quem = "Você" if m["role"] == "user" else "Gárgula"
-        partes.append(f"## {quem}\n\n{m['content']}\n")
+        role = m.get("role")
+        if role == "user":
+            texto = m.get("content", "")
+            imgs = m.get("imagens") or []
+            if imgs:
+                nomes = ", ".join(x.get("nome", "imagem") for x in imgs)
+                texto = f"{texto}\n\n_(imagens anexadas: {nomes})_".strip()
+            partes.append(f"## Você\n\n{texto}\n")
+        elif role == "assistant":
+            texto = (m.get("content") or "").strip()
+            chamadas = m.get("chamadas") or []
+            if chamadas:
+                nomes_tools = ", ".join(c.get("nome", "?") for c in chamadas)
+                bloco_tools = f"_Ferramentas usadas: {nomes_tools}_"
+                texto = f"{texto}\n\n{bloco_tools}".strip()
+            if texto:
+                partes.append(f"## Gárgula\n\n{texto}\n")
+        elif role == "ferramenta":
+            linhas = []
+            for r in m.get("resultados") or []:
+                status = "erro" if r.get("erro") else "ok"
+                previa = (r.get("conteudo") or "").strip().splitlines()
+                resumo = previa[0][:120] if previa else "(vazio)"
+                linhas.append(f"- `{r.get('nome', '?')}` ({status}): {resumo}")
+            if linhas:
+                partes.append("### Retorno das ferramentas\n\n" + "\n".join(linhas) + "\n")
     p.write_text("\n".join(partes), encoding="utf-8")
     return p
 
@@ -52,8 +76,12 @@ def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: b
         return 2
     ui.exibir_banner_inicial(__version__, llm["provedor"], llm["modelo"] or "?", modo, auto=auto)
     if not llm.get("chave") and llm["provedor"] not in ("ollama", "compativel"):
-        ui.aviso(f"sem chave para {llm['provedor']}: defina {llm['env']} "
-                 f"ou rode `gargula config set chave.{llm['provedor']} <chave>`")
+        if llm["provedor"] == "drael":
+            ui.aviso("sem chave para drael: rode `drael login`, defina DRAEL_KEY (ou DRAEL_API_KEY) "
+                     "ou rode `gargula config set chave.drael <chave>`")
+        else:
+            ui.aviso(f"sem chave para {llm['provedor']}: defina {llm['env']} "
+                     f"ou rode `gargula config set chave.{llm['provedor']} <chave>`")
     agente = Agente(llm, modo, auto)
     historico = agente.historico
     fixos = contexto.arquivos_fixos()
@@ -119,7 +147,10 @@ def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: b
 
         print()
         try:
-            texto_limpo, imgs = extrair_imagens(texto)
+            avisos_img: list[str] = []
+            texto_limpo, imgs = extrair_imagens(texto, avisos=avisos_img)
+            for av in avisos_img:
+                ui.aviso(av)
             if imgs:
                 nomes = ", ".join(f"{i['nome']} ({i['kb']} KB)" for i in imgs)
                 ui.ok(f"{len(imgs)} imagem(ns): {nomes}")

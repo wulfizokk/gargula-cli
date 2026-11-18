@@ -8,8 +8,11 @@ import os
 import re
 from pathlib import Path
 
+from gargula import contexto
+
 # Extensoes suportadas pelas APIs de visao
 _EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+LIMITE_BYTES = 10 * 1024 * 1024  # 10 MB por imagem (evita estourar API/RAM)
 
 # Regex que pega caminhos de arquivo com essas extensoes
 # Aceita com ou sem aspas, caminhos Windows (C:\...) e Unix
@@ -26,7 +29,7 @@ def _mime(caminho: str) -> str:
     return tipo or "image/png"
 
 
-def extrair_imagens(texto: str) -> tuple[str, list[dict]]:
+def extrair_imagens(texto: str, avisos: list[str] | None = None) -> tuple[str, list[dict]]:
     """Extrai caminhos de imagem do texto do usuario.
 
     Retorna (texto_limpo, lista_de_imagens).
@@ -34,25 +37,43 @@ def extrair_imagens(texto: str) -> tuple[str, list[dict]]:
     """
     imagens: list[dict] = []
     encontrados: list[str] = []
+    vistos: set[Path] = set()
 
     for m in _RE_PATH.finditer(texto):
         caminho_bruto = m.group(1) or m.group(2) or m.group(3)
         caminho = os.path.expanduser(caminho_bruto.strip())
-        if not os.path.isfile(caminho):
-            continue
-        ext = Path(caminho).suffix.lower()
-        if ext not in _EXT:
+        p = Path(caminho)
+        if not p.is_file():
             continue
         try:
-            dados = Path(caminho).read_bytes()
+            resolvido = p.resolve()
+        except OSError:
+            continue
+        if resolvido.suffix.lower() not in _EXT:
+            continue
+        if contexto.bloqueado(resolvido):
+            if avisos is not None:
+                avisos.append(f"imagem bloqueada por pasta protegida: {p.name}")
+            continue
+        if resolvido in vistos:
+            encontrados.append(m.group(0))
+            continue
+        try:
+            tamanho = resolvido.stat().st_size
+            if tamanho > LIMITE_BYTES:
+                if avisos is not None:
+                    avisos.append(f"{p.name} excede {LIMITE_BYTES // (1024 * 1024)} MB e foi ignorada")
+                continue
+            dados = resolvido.read_bytes()
         except (OSError, PermissionError):
             continue
+        vistos.add(resolvido)
         imagens.append({
-            "caminho": caminho,
-            "nome": Path(caminho).name,
-            "mime": _mime(caminho),
+            "caminho": str(resolvido),
+            "nome": resolvido.name,
+            "mime": _mime(str(resolvido)),
             "base64": base64.b64encode(dados).decode("ascii"),
-            "kb": len(dados) // 1024,
+            "kb": max(1, len(dados) // 1024) if dados else 0,
         })
         encontrados.append(m.group(0))
 
@@ -60,7 +81,7 @@ def extrair_imagens(texto: str) -> tuple[str, list[dict]]:
     texto_limpo = texto
     for trecho in encontrados:
         texto_limpo = texto_limpo.replace(trecho, "").strip()
-    if not texto_limpo:
+    if imagens and not texto_limpo:
         texto_limpo = "analise esta imagem"
 
     return texto_limpo, imagens

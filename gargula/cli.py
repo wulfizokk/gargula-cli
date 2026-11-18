@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from gargula import __version__, ads, config, prompts, ui, zap
+from gargula import __version__, ads, config, contexto, ferramentas, prompts, ui, zap
 from gargula.llm import ErroLLM, responder
 
 
@@ -48,7 +48,12 @@ def cmd_chat(args) -> int:
         from gargula import repl
         return repl.rodar(args.provedor, args.modelo, args.modo, auto)
     from gargula import agente
-    return agente.rodar_unico(_llm(args), texto, args.modo, auto)
+    from gargula.imagens import extrair_imagens
+    avisos_img: list[str] = []
+    texto_limpo, imgs = extrair_imagens(texto, avisos=avisos_img)
+    for av in avisos_img:
+        ui.aviso(av)
+    return agente.rodar_unico(_llm(args), texto_limpo, args.modo, auto, imagens=imgs or None)
 
 
 def cmd_copy(args) -> int:
@@ -255,7 +260,7 @@ def cmd_inicio(args) -> int:
     print()
 
     if sys.stdin.isatty():
-        prov_atual = config.obter("provedor", "anthropic")
+        prov_atual = config.obter("provedor", "drael")
         prov = input(f"Provedor padrão atual é '{prov_atual}'. Deseja trocar? (Enter para manter ou digite o nome): ").strip().lower()
         if prov and prov in config.PROVEDORES:
             config.definir("provedor", prov)
@@ -280,12 +285,12 @@ def cmd_inicio(args) -> int:
         ui.ok(f"templates de identidade prontos em {dna.pasta_dna()}")
 
     print()
-    ui.ok("Tudo pronto! Comandos revolucionários para você testar:")
+    ui.ok("Tudo pronto! Comandos da trincheira para testar agora:")
     print("  • gargula copy --produto 'Seu Produto' --publico 'Seu Nicho'")
     print("  • gargula cro --url 'https://seusite.com' (ou passe --arquivo)")
     print("  • gargula criativos ganchos --produto 'Seu Produto'")
     print("  • gargula zap objetar 'achei caro, vou ver com meu sócio'")
-    print("  • gargula ads reconciliar --ads metricas.csv --checkout kiwify.csv")
+    print("  • gargula ads reconciliar --arquivo metricas.csv --checkout kiwify.csv")
     print("  • gargula dna mostrar")
     print("  • gargula (abre o chat interativo com o agente autônomo)\n")
     return 0
@@ -341,6 +346,8 @@ def montar_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("chat", help="tarefa para o agente ou chat interativo (aceita texto por pipe)")
     c.add_argument("texto", nargs="*")
     c.add_argument("--modo", default="geral", choices=list(prompts.MODOS))
+    c.add_argument("-y", "--auto", "--yolo", dest="auto", action="store_true", default=argparse.SUPPRESS,
+                   help="modo YOLO: aprova escrita de arquivos e comandos sem perguntar")
     c.set_defaults(func=cmd_chat)
 
     c = sub.add_parser("copy", help="gera variações de copy")
@@ -402,7 +409,8 @@ def montar_parser() -> argparse.ArgumentParser:
         c.add_argument("--periodo", default="last_7d", choices=ads.PERIODOS)
         c.add_argument("--nivel", default="campaign", choices=["campaign", "adset", "ad"])
         c.add_argument("--arquivo", help="usar métricas de um .json/.csv em vez da API")
-        c.add_argument("--json", action="store_true") if nome == "insights" else None
+        if nome == "insights":
+            c.add_argument("--json", action="store_true")
         if nome == "diagnostico":
             c.add_argument("--meta", help="ex.: 'CPA até R$ 30' ou 'ROAS 3'")
             c.add_argument("--ticket", help="ticket médio em R$")
@@ -410,7 +418,8 @@ def montar_parser() -> argparse.ArgumentParser:
 
     c = a.add_parser("reconciliar", help="cruza gasto de ads com vendas reais de checkout para achar o ROAS Real")
     c.add_argument("--checkout", required=True, help="arquivo CSV do checkout (Kiwify, Hotmart, Eduzz, etc.)")
-    c.add_argument("--arquivo", help="arquivo CSV/JSON com métricas do Meta Ads (ou busca via API se omitido)")
+    c.add_argument("--arquivo", "--ads", dest="arquivo",
+                   help="arquivo CSV/JSON com métricas do Meta Ads (ou busca via API se omitido)")
     c.add_argument("--conta", help="act_123... (ou meta.conta)")
     c.add_argument("--periodo", default="last_7d", choices=ads.PERIODOS)
     c.add_argument("--nivel", default="campaign", choices=["campaign", "adset", "ad"])
@@ -504,7 +513,8 @@ def main(argv=None) -> int:
             from gargula import repl
             return repl.rodar(args.provedor, args.modelo, "geral", _modo_auto(args))
         return args.func(args)
-    except (ErroLLM, zap.ErroZap, ads.ErroAds, ValueError, FileNotFoundError) as e:
+    except (ErroLLM, zap.ErroZap, ads.ErroAds, ferramentas.ErroFerramenta,
+            contexto.ErroContexto, ValueError, FileNotFoundError) as e:
         ui.erro(str(e))
         return 1
     except KeyboardInterrupt:

@@ -7,10 +7,11 @@ Calcula o ROAS Real (faturamento que de fato caiu na conta vs gasto no Meta Ads)
 
 from __future__ import annotations
 
-import csv
 import json
 import re
 from pathlib import Path
+
+from gargula import ads
 
 
 STATUS_PAGO = {
@@ -27,53 +28,42 @@ STATUS_CANCELADO = {
 
 
 def _normalizar(s: str) -> str:
-    return re.sub(r"[^a-z0-9_]+", "_", (s or "").lower().strip()).strip("_")
+    return ads._norm_chave(s)
 
 
 def _num(v) -> float:
-    if v is None:
-        return 0.0
-    if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).strip().replace("R$", "").replace("$", "").replace(" ", "")
-    if not s:
-        return 0.0
-    # Trata formato brasileiro 1.234,56 vs americano 1,234.56
-    if "," in s and "." in s:
-        if s.rfind(",") > s.rfind("."):
-            s = s.replace(".", "").replace(",", ".")
-        else:
-            s = s.replace(",", "")
-    elif "," in s:
-        s = s.replace(",", ".")
-    try:
-        return float(s)
-    except ValueError:
-        return 0.0
+    return ads._f(v)
 
 
 def carregar_vendas(caminho_ou_texto: str) -> list[dict]:
     p = Path(caminho_ou_texto)
-    if p.is_file():
-        texto = p.read_text(encoding="utf-8-sig")
-    else:
-        texto = caminho_ou_texto
-
-    if texto.strip().startswith("[") or texto.strip().startswith("{"):
+    texto = p.read_text(encoding="utf-8-sig") if p.is_file() else caminho_ou_texto
+    if texto.strip().startswith(("[", "{")):
         dados = json.loads(texto)
         return dados if isinstance(dados, list) else dados.get("data", [dados])
-
-    linhas = list(csv.DictReader(texto.splitlines()))
-    return linhas
+    return ads.ler_csv(texto)
 
 
-def _achar_campo(linha: dict, candidatos: list[str]) -> str | None:
+def _achar_campo(linha: dict, candidatos: list[str], ignorar_tokens: tuple[str, ...] = ()) -> str | None:
     norm_map = {_normalizar(k): k for k in linha.keys()}
     for c in candidatos:
         nc = _normalizar(c)
         if nc in norm_map:
             return linha[norm_map[nc]]
+    for c in candidatos:
+        nc = _normalizar(c)
         for k_norm, k_orig in norm_map.items():
+            tokens = set(k_norm.split("_"))
+            if ignorar_tokens and (tokens & set(ignorar_tokens)):
+                continue
+            if nc in tokens:
+                return linha[k_orig]
+    for c in candidatos:
+        nc = _normalizar(c)
+        for k_norm, k_orig in norm_map.items():
+            tokens = set(k_norm.split("_"))
+            if ignorar_tokens and (tokens & set(ignorar_tokens)):
+                continue
             if nc in k_norm:
                 return linha[k_orig]
     return None
@@ -81,9 +71,9 @@ def _achar_campo(linha: dict, candidatos: list[str]) -> str | None:
 
 def identificar_transacao(linha: dict) -> dict:
     """Extrai status, valor e campanha de uma linha de qualquer checkout."""
-    st_raw = _achar_campo(linha, [
+    st_raw = (_achar_campo(linha, [
         "status", "estado", "status_da_transacao", "situacao", "transaction_status", "payment_status"
-    ]) or "aprovado"
+    ]) or "aprovado").strip()
     st = _normalizar(st_raw)
 
     palavras = set(st.split("_"))
@@ -96,21 +86,53 @@ def identificar_transacao(linha: dict) -> dict:
     else:
         status_final = "pago"  # default se não identificar status negativo
 
-    valor_raw = _achar_campo(linha, [
-        "valor_liquido", "liquido", "net_amount", "valor_total", "valor", "preco", "amount", "total"
-    ])
+    valor_raw = _achar_campo(
+        linha,
+        ["valor_liquido", "liquido", "net_amount", "valor_total", "valor", "preco", "amount", "total"],
+        ignorar_tokens=("desconto", "taxa", "tarifa", "frete", "subtotal"),
+    )
     valor = _num(valor_raw)
 
-    campanha = _achar_campo(linha, [
+    campanha = (_achar_campo(linha, [
         "utm_campaign", "campaign", "campanha", "sck", "src", "utm_content", "origem"
-    ]) or "(direto/sem utm)"
+    ]) or "").strip() or "(direto/sem utm)"
 
     return {
         "status": status_final,
         "valor": round(valor, 2),
-        "campanha": campanha.strip(),
+        "campanha": campanha,
         "original": linha
     }
+
+
+def _escolher_campanha_ad(c_nome: str, ads_resumos: list[dict]) -> int | None:
+    """Encontra o índice da única campanha de Ads correspondente, evitando dupla contagem."""
+    if not c_nome or c_nome == "(direto/sem utm)":
+        return None
+    c_norm = _normalizar(c_nome)
+    if not c_norm:
+        return None
+
+    for idx, ad in enumerate(ads_resumos):
+        ad_nome = (ad.get("nome") or "").strip().lower()
+        if c_nome == ad_nome or c_norm == _normalizar(ad_nome):
+            return idx
+
+    melhores: list[tuple[int, int]] = []
+    for idx, ad in enumerate(ads_resumos):
+        ad_nome = (ad.get("nome") or "").strip().lower()
+        ad_norm = _normalizar(ad_nome)
+        if not ad_norm:
+            continue
+        if (len(c_nome) >= 3 and c_nome in ad_nome) or (len(ad_nome) >= 3 and ad_nome in c_nome):
+            melhores.append((len(ad_norm), idx))
+        elif (len(c_norm) >= 3 and c_norm in ad_norm) or (len(ad_norm) >= 3 and ad_norm in c_norm):
+            melhores.append((len(ad_norm), idx))
+    if not melhores:
+        return None
+    # Prefere a campanha de nome mais próximo em tamanho ao nome no checkout
+    melhores.sort(key=lambda item: (abs(item[0] - len(c_norm)), -item[0]))
+    return melhores[0][1]
 
 
 def reconciliar(ads_resumos: list[dict], checkout_linhas: list[dict]) -> dict:
@@ -132,27 +154,27 @@ def reconciliar(ads_resumos: list[dict], checkout_linhas: list[dict]) -> dict:
         elif st == "cancelado":
             por_campanha[c]["canceladas"] += 1
 
+    # Cada grupo de campanha no checkout é atribuído no máximo uma vez (sem dupla contagem)
+    vendas_por_ad = [{"pagas": 0, "pendentes": 0, "canceladas": 0, "receita_real": 0.0} for _ in ads_resumos]
+    for c_nome, dados in por_campanha.items():
+        alvo = _escolher_campanha_ad(c_nome, ads_resumos)
+        if alvo is not None:
+            vendas_por_ad[alvo]["pagas"] += dados["pagas"]
+            vendas_por_ad[alvo]["pendentes"] += dados["pendentes"]
+            vendas_por_ad[alvo]["canceladas"] += dados["canceladas"]
+            vendas_por_ad[alvo]["receita_real"] += dados["receita_real"]
+
     linhas_reconciliadas = []
     gasto_total = 0.0
     receita_real_total = 0.0
     compras_meta_total = 0
     pagas_total = 0
 
-    for ad in ads_resumos:
+    for ad, vendas in zip(ads_resumos, vendas_por_ad):
         nome_ad = ad.get("nome", "")
-        nome_lower = nome_ad.lower()
         gasto = ad.get("gasto", 0.0)
         compras_meta = ad.get("compras", 0)
         receita_meta = ad.get("receita", 0.0)
-
-        # Procura correspondência de nome no checkout (exato ou substring)
-        vendas = {"pagas": 0, "pendentes": 0, "canceladas": 0, "receita_real": 0.0}
-        for c_nome, dados in por_campanha.items():
-            if c_nome in nome_lower or nome_lower in c_nome or _normalizar(c_nome) in _normalizar(nome_lower):
-                vendas["pagas"] += dados["pagas"]
-                vendas["pendentes"] += dados["pendentes"]
-                vendas["canceladas"] += dados["canceladas"]
-                vendas["receita_real"] += dados["receita_real"]
 
         receita_real = round(vendas["receita_real"], 2)
         roas_meta = ad.get("roas")
@@ -205,9 +227,7 @@ def reconciliar(ads_resumos: list[dict], checkout_linhas: list[dict]) -> dict:
 
 
 def _brl(v) -> str:
-    if v is None:
-        return "—"
-    return "R$ " + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return ads._brl(v)
 
 
 def formatar_tabela(resultado: dict) -> str:

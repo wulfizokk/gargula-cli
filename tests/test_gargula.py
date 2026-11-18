@@ -7,15 +7,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest import mock
 
-from gargula import ads, agente, checkout, cli, config, criativos, crm, cro, dna, ferramentas, llm, ui, zap
+from gargula import ads, agente, checkout, cli, config, criativos, crm, cro, dna, ferramentas, imagens, llm, repl, ui, zap
 
 
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         limpo = {k: v for k, v in os.environ.items()
-                 if not k.endswith("_API_KEY") and not k.startswith(("GARGULA", "EVOLUTION", "WHATSAPP", "META_"))}
+                 if not k.endswith("_API_KEY") and not k.startswith(("GARGULA", "EVOLUTION", "WHATSAPP", "META_", "DRAEL"))}
         limpo["GARGULA_HOME"] = self.tmp.name
+        limpo["XDG_CONFIG_HOME"] = self.tmp.name
         self.env = mock.patch.dict(os.environ, limpo, clear=True)
         self.env.start()
 
@@ -51,10 +52,34 @@ class TestMascote(unittest.TestCase):
 
 
 class TestConfig(Base):
-    def test_padrao_e_anthropic(self):
+    def test_padrao_e_drael_core(self):
         r = config.resolver_llm()
-        self.assertEqual((r["provedor"], r["tipo"]), ("anthropic", "anthropic"))
+        self.assertEqual((r["provedor"], r["tipo"], r["modelo"]), ("drael", "openai", "drael-v1"))
+        self.assertEqual(r["base"], "https://drael.sh/v1")
         self.assertIsNone(r["chave"])
+
+    def test_drael_login_credencial_host_e_fallback_env(self):
+        drael_dir = Path(self.tmp.name) / "drael"
+        drael_dir.mkdir(parents=True)
+        (drael_dir / "credential").write_text("drael-login-tok\n", encoding="utf-8")
+        (drael_dir / "config.json").write_text('{"host": "https://custom.drael.sh/"}', encoding="utf-8")
+
+        r = config.resolver_llm()
+        self.assertEqual(r["chave"], "drael-login-tok")
+        self.assertEqual(r["base"], "https://custom.drael.sh/v1")
+
+        with mock.patch.dict(os.environ, {"DRAEL_API_KEY": "alt-123"}):
+            self.assertEqual(config.resolver_llm()["chave"], "alt-123")
+        with mock.patch.dict(os.environ, {"DRAEL_KEY": "main-456", "DRAEL_API_KEY": "alt-123", "DRAEL_HOST": "https://h.drael.sh"}):
+            r2 = config.resolver_llm()
+            self.assertEqual(r2["chave"], "main-456")
+            self.assertEqual(r2["base"], "https://h.drael.sh/v1")
+
+    def test_max_tokens_drael_e_padrao(self):
+        self.assertEqual(llm.max_tokens("drael-v1"), 32768)
+        self.assertEqual(llm.max_tokens("gpt-4o-mini"), 4096)
+        _, _, body = llm.montar_requisicao("openai", "https://drael.sh/v1", "k", "drael-v1", "s", [{"role": "user", "content": "oi"}])
+        self.assertEqual(body["max_tokens"], 32768)
 
     def test_prioridade_env_sobre_arquivo(self):
         config.definir("chave.openai", "arquivo-1234")
@@ -334,8 +359,9 @@ class TestFerramentas(Base):
         self.assertIn("usetag.md", ferramentas.buscar_notas("placa avaliação"))
 
     def test_terminal_nao_herda_chaves(self):
-        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-x", "META_ACCESS_TOKEN": "t", "PATH_X": "ok"}):
+        with mock.patch.dict(os.environ, {"DRAEL_KEY": "dr-x", "ANTHROPIC_API_KEY": "sk-x", "META_ACCESS_TOKEN": "t", "PATH_X": "ok"}):
             env = ferramentas._env_sem_segredos()
+        self.assertNotIn("DRAEL_KEY", env)
         self.assertNotIn("ANTHROPIC_API_KEY", env)
         self.assertNotIn("META_ACCESS_TOKEN", env)
         self.assertEqual(env["PATH_X"], "ok")
@@ -520,9 +546,11 @@ class TestUIExtras(unittest.TestCase):
         self.assertIsNotNone(getattr(ui, "AMARELO", None))
         self.assertEqual(ui.AMARELO, (251, 191, 36))
 
-    def test_banner_com_yolo(self):
+    def test_banner_com_yolo_alinhado(self):
         txt = ui.banner("0.3.0", "anthropic", "claude-sonnet-5-5", "geral", cor=False, auto=True)
-        self.assertIn("YOLO", txt)
+        self.assertIn("[YOLO]", txt)
+        bordas = [l for l in txt.splitlines() if l.startswith(("╭", "│", "╰"))]
+        self.assertEqual(len({len(l) for l in bordas}), 1)
 
 
 class TestYoloEImagens(Base):
@@ -532,11 +560,47 @@ class TestYoloEImagens(Base):
         args = parser.parse_args([])
         self.assertTrue(cli._modo_auto(args))
 
-    def test_yolo_via_flag(self):
+    def test_yolo_via_flag_antes_ou_depois_de_chat(self):
         parser = cli.montar_parser()
-        args = parser.parse_args(["--yolo"])
-        self.assertTrue(args.auto)
-        self.assertTrue(cli._modo_auto(args))
+        for argv in (["--yolo"], ["--yolo", "chat", "oi"], ["chat", "--yolo", "oi"]):
+            args = parser.parse_args(argv)
+            self.assertTrue(args.auto)
+            self.assertTrue(cli._modo_auto(args))
+
+    def test_extrair_imagens_dedup_limite_e_bloqueio(self):
+        img = Path(self.tmp.name) / "criativo.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 100)
+        pasta_sec = Path(self.tmp.name) / ".secrets"
+        pasta_sec.mkdir()
+        img_sec = pasta_sec / "token.png"
+        img_sec.write_bytes(b"png")
+
+        avisos = []
+        txt, imgs = imagens.extrair_imagens(f'analise "{img}" e {img} e "{img_sec}"', avisos=avisos)
+        self.assertIn("analise", txt)
+        self.assertEqual(len(imgs), 1)
+        self.assertEqual(imgs[0]["nome"], "criativo.png")
+        self.assertTrue(any("bloqueada" in a for a in avisos))
+
+        with mock.patch.object(imagens, "LIMITE_BYTES", 50):
+            avisos_tam = []
+            _, imgs_tam = imagens.extrair_imagens(str(img), avisos=avisos_tam)
+            self.assertEqual(imgs_tam, [])
+            self.assertTrue(any("excede" in a for a in avisos_tam))
+
+    def test_compactar_imagens_antigas(self):
+        hist = [
+            {"role": "user", "content": "um", "imagens": [{"nome": "1.png", "base64": "A"}]},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "dois", "imagens": [{"nome": "2.png", "base64": "B"}]},
+            {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "tres", "imagens": [{"nome": "3.png", "base64": "C"}]},
+        ]
+        agente._compactar_imagens_antigas(hist, manter=2)
+        self.assertNotIn("imagens", hist[0])
+        self.assertIn("1.png", hist[0]["content"])
+        self.assertIn("imagens", hist[2])
+        self.assertIn("imagens", hist[4])
 
     def test_multimodal_formatos_api(self):
         imgs = [{"caminho": "x.png", "nome": "x.png", "mime": "image/png", "base64": "QUJD", "kb": 1}]
@@ -557,6 +621,166 @@ class TestYoloEImagens(Base):
         self.assertEqual(gem[0]["role"], "user")
         self.assertEqual(gem[0]["parts"][0]["inline_data"]["mime_type"], "image/png")
         self.assertEqual(gem[0]["parts"][0]["inline_data"]["data"], "QUJD")
+
+
+class TestAuditoriaFixes(Base):
+    def test_salvar_conversa_com_ferramentas_e_imagens(self):
+        hist = [
+            {"role": "user", "content": "veja o caixa", "imagens": [{"nome": "print.png", "base64": "AAA"}]},
+            {"role": "assistant", "content": "", "chamadas": [{"id": "c1", "nome": "crm_status", "args": {}}]},
+            {"role": "ferramenta", "resultados": [{"id": "c1", "nome": "crm_status", "conteudo": "OK ativo", "erro": False}]},
+            {"role": "assistant", "content": "Tudo certo.", "chamadas": []},
+        ]
+        destino = Path(self.tmp.name) / "chat.md"
+        salvo = repl.salvar_conversa(hist, str(destino))
+        conteudo = salvo.read_text(encoding="utf-8")
+        self.assertIn("print.png", conteudo)
+        self.assertIn("`crm_status` (ok): OK ativo", conteudo)
+        self.assertIn("Tudo certo.", conteudo)
+        self.assertNotIn("AAA", conteudo)
+
+    def test_checkout_sem_dupla_contagem_e_sem_espacos(self):
+        ads_res = [
+            {"nome": "Black", "gasto": 100.0, "compras": 1, "receita": 100.0, "roas": 1.0},
+            {"nome": "Black - Remarketing", "gasto": 100.0, "compras": 2, "receita": 200.0, "roas": 2.0},
+        ]
+        linhas = [
+            {"status": "aprovado", "Valor Líquido": "R$ 200,00", "valor_desconto": "50,00", "utm_campaign": "Black - Remarketing"},
+            {"status": "aprovado", "valor": "100,00", "utm_campaign": "   "},  # sem UTM válida
+        ]
+        res = checkout.reconciliar(ads_res, linhas)
+        self.assertEqual(res["campanhas"][0]["real_pagas"], 0)
+        self.assertEqual(res["campanhas"][1]["real_pagas"], 1)
+        self.assertEqual(res["campanhas"][1]["real_receita"], 200.0)
+        self.assertEqual(res["totais"]["receita_real_total"], 200.0)
+
+    def test_ads_csv_ptbr_e_ponto_e_virgula(self):
+        p = Path(self.tmp.name) / "meta_pt.csv"
+        p.write_text(
+            "Nome da campanha;Valor usado (BRL);Impressões;Cliques no link;Compras;Valor de conversão da compra\n"
+            "Escala Natal;1.250,50;50000;1000;10;R$ 3.751,50\n",
+            encoding="utf-8",
+        )
+        linhas = ads.carregar_arquivo(str(p))
+        r = ads.resumir(linhas[0])
+        self.assertEqual(r["nome"], "Escala Natal")
+        self.assertEqual(r["gasto"], 1250.5)
+        self.assertEqual(r["compras"], 10)
+        self.assertEqual(r["receita"], 3751.5)
+        self.assertEqual(r["roas"], 3.0)
+
+    def test_crm_pasta_detecta_so_worker_sem_painel(self):
+        proj = Path(self.tmp.name) / "Projetos" / "crm-usetag"
+        (proj / "worker").mkdir(parents=True)
+        with mock.patch("pathlib.Path.home", return_value=Path(self.tmp.name)):
+            self.assertEqual(crm.pasta_crm(), proj)
+
+    def test_ler_url_bloqueia_ssrf_local_e_privado(self):
+        for url in ("http://localhost:8080/", "http://127.0.0.1/admin", "http://169.254.169.254/latest/meta-data/"):
+            with self.assertRaisesRegex(ferramentas.ErroFerramenta, "bloqueado"):
+                ferramentas.ler_url(url)
+
+    def test_cli_reconciliar_aceita_flag_ads_e_arquivo(self):
+        parser = cli.montar_parser()
+        a1 = parser.parse_args(["ads", "reconciliar", "--arquivo", "a.csv", "--checkout", "b.csv"])
+        a2 = parser.parse_args(["ads", "reconciliar", "--ads", "a.csv", "--checkout", "b.csv"])
+        self.assertEqual(a1.arquivo, "a.csv")
+        self.assertEqual(a2.arquivo, "a.csv")
+
+    def test_agente_desfaz_turno_multipasso_em_erro(self):
+        llm_fake = {"provedor": "openai", "tipo": "openai", "base": "u", "modelo": "m", "chave": "k", "env": "X"}
+        Path(self.tmp.name, "n.md").write_text("dado", encoding="utf-8")
+        r1 = {"texto": "", "chamadas": [{"id": "1", "nome": "ler_arquivo", "args": {"caminho": str(Path(self.tmp.name, "n.md"))}}],
+              "parada": "tool_calls"}
+        a = agente.Agente(llm_fake, auto=True)
+        a.historico.append({"role": "user", "content": "prev"})
+        a.historico.append({"role": "assistant", "content": "ok prev"})
+        chamadas = [r1, llm.ErroLLM("HTTP 429")]
+
+        def fake_conv(*_args, **_kwargs):
+            v = chamadas.pop(0)
+            if isinstance(v, Exception):
+                raise v
+            return v
+
+        with mock.patch.object(agente, "conversar", side_effect=fake_conv), mock.patch("sys.stdout"):
+            with self.assertRaises(llm.ErroLLM):
+                a.turno("novo pedido")
+        a.desfazer_ultimo()
+        self.assertEqual(len(a.historico), 2)
+        self.assertEqual(a.historico[-1]["content"], "ok prev")
+
+    def test_llm_retry_em_429(self):
+        tentativas = {"n": 0}
+
+        class HandlerRetry(BaseHTTPRequestHandler):
+            def do_POST(self):
+                _ = self.rfile.read(int(self.headers["Content-Length"]))
+                tentativas["n"] += 1
+                if tentativas["n"] == 1:
+                    self.send_response(429)
+                    self.end_headers()
+                    self.wfile.write(b'{"error": {"message": "rate limit"}}')
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"choices": [{"message": {"content": "recuperado"}}]}).encode())
+
+            def log_message(self, *a):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), HandlerRetry)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            r = {"provedor": "compativel", "tipo": "openai", "base": f"http://127.0.0.1:{srv.server_port}/v1",
+                 "modelo": "m", "chave": "k", "env": None}
+            with mock.patch("time.sleep"):
+                res = llm.conversar(r, "s", [{"role": "user", "content": "oi"}], stream=False)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        self.assertEqual(tentativas["n"], 2)
+        self.assertEqual(res["texto"], "recuperado")
+
+    def test_llm_nao_retenta_apos_emitir_chunk_em_streaming(self):
+        import socket as _socket
+
+        class RespParcial:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+            def __iter__(self):
+                yield b'data: {"choices": [{"delta": {"content": "parte1"}}]}\n'
+                raise _socket.timeout("caiu no meio")
+
+        pedacos = []
+        r = {"provedor": "compativel", "tipo": "openai", "base": "https://x/v1",
+             "modelo": "m", "chave": "k", "env": None}
+        with mock.patch("urllib.request.urlopen", return_value=RespParcial()) as uo, mock.patch("time.sleep"):
+            with self.assertRaisesRegex(llm.ErroLLM, "demorou"):
+                llm.conversar(r, "s", [{"role": "user", "content": "oi"}], ao_pedaco=pedacos.append)
+        self.assertEqual(uo.call_count, 1)
+        self.assertEqual(pedacos, ["parte1"])
+
+    def test_cmd_chat_envia_imagens_no_modo_direto(self):
+        img = Path(self.tmp.name) / "ad.png"
+        img.write_bytes(b"pngbytes")
+        with mock.patch("sys.stdin") as stdin, mock.patch("gargula.agente.rodar_unico", return_value=0) as rodar_mock:
+            stdin.isatty.return_value = True
+            cli.main(["--yolo", "chat", "analisa", str(img)])
+        self.assertTrue(rodar_mock.called)
+        kwargs = rodar_mock.call_args.kwargs
+        self.assertEqual(len(kwargs["imagens"]), 1)
+        self.assertEqual(kwargs["imagens"][0]["nome"], "ad.png")
+
+    def test_cmd_inicio_executa_sem_erro(self):
+        with mock.patch("sys.stdin") as stdin, mock.patch("sys.stdout"):
+            stdin.isatty.return_value = False
+            self.assertEqual(cli.main(["inicio"]), 0)
 
 
 if __name__ == "__main__":

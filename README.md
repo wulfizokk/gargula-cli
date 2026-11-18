@@ -20,7 +20,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-purple.svg)](https://www.python.org/)
 [![License MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero%20(stdlib%20only)-green.svg)]()
-[![Tests](https://img.shields.io/badge/tests-55%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-75%20passing-brightgreen.svg)]()
 
 O **Gárgula** é um agente autônomo de terminal e **RevOS (Revenue Operating System)** open source feito para quem vende pela internet: infoprodutores, afiliados, gestores de tráfego, e-commerces e equipes de vendas.
 
@@ -38,7 +38,7 @@ No estilo do *Claude Code*, mas especializado em fechar o ciclo de receita no ma
 6. **CRM Proprietário Pré-Integrado (Next 15 + Postgres + IA):** Conexão nativa com nosso CRM de vendas com agente de atendimento em primeira mão, catálogo de preços anti-alucinação e handoff humano para o time comercial.
 7. **Agente com Ferramentas Reais:** Lê e edita arquivos locais, roda comandos no terminal, busca no seu vault do Obsidian e consulta a Graph API do Meta Ads.
 8. **100% Biblioteca Padrão:** Não tem 400 MB de dependências do `node_modules` ou pacotes externos. Usa puramente Python 3.9+ padrão, leve e instantâneo.
-9. **Agnóstico de LLM:** Use Anthropic (Claude), OpenAI (GPT-4o), Gemini, Groq, OpenRouter, DeepSeek ou Ollama 100% local e gratuito.
+9. **DRAEL Core + Agnóstico de LLM:** Usa **DRAEL (`drael-v1`)** como agente core padrão (integrado automaticamente com `drael login` / `DRAEL_KEY`, visão e 32k tokens de saída), além de Anthropic (Claude), OpenAI (GPT-4o), Gemini, Groq, OpenRouter, DeepSeek ou Ollama local.
 
 ---
 
@@ -63,13 +63,16 @@ gargula inicio
 Ou configure manualmente suas chaves via variáveis de ambiente:
 
 ```bash
-# Escolha o seu provedor (PowerShell: $env:ANTHROPIC_API_KEY="...")
+# Agente core padrão: já autentica se você rodou `drael login`, ou defina DRAEL_KEY:
+export DRAEL_KEY="..."
+
+# Ou use qualquer outro provedor (PowerShell: $env:ANTHROPIC_API_KEY="...")
 export ANTHROPIC_API_KEY="sk-ant-..."
 export GEMINI_API_KEY="..."
 export OPENAI_API_KEY="..."
 
-# Defina a LLM padrão:
-gargula config set provedor anthropic
+# Para trocar o provedor padrão (padrão atual: drael):
+gargula config set provedor drael
 
 # Veja quais modelos estão prontos:
 gargula provedores
@@ -103,7 +106,7 @@ O Meta Ads diz que você teve ROAS 3.0, mas na sua conta bancária o dinheiro n�
 O Gárgula cruza o gasto real do Meta Ads com os relatórios de checkout (Kiwify, Hotmart, Eduzz, Braip, Yampi, Asaas, Stripe, etc.):
 
 ```bash
-gargula ads reconciliar --ads metricas_meta.csv --checkout vendas_kiwify.csv
+gargula ads reconciliar --arquivo metricas_meta.csv --checkout vendas_kiwify.csv
 ```
 
 **Resultado no terminal:**
@@ -186,10 +189,11 @@ gargula config set pasta_base "C:\Users\voce\meu-vault-obsidian"
 gargula
 ```
 
-Ou execute tarefas diretas com aprovação automática de leitura/escrita:
+Ou execute tarefas diretas em modo YOLO (aprovação automática de leitura/escrita/comandos, mantendo confirmação obrigatória no WhatsApp):
 ```bash
-gargula --auto chat "leia minhas notas sobre a Black Friday, veja o CPA das campanhas no Meta Ads e monte uma oferta nova"
+gargula --yolo chat "leia minhas notas sobre a Black Friday, veja o CPA das campanhas no Meta Ads e monte uma oferta nova"
 ```
+*No chat interativo, digite `/yolo` para alternar na hora, `gargula config set yolo true` para deixar padrão, ou arraste/cole o caminho de uma imagem (`.png`, `.jpg`, `.webp`, `.gif`) para analisar criativos e prints.*
 
 ### Matriz de Ferramentas e Permissões
 
@@ -261,7 +265,7 @@ A personalidade, os 7 mandamentos inegociáveis e a filosofia forjada na trinche
 
 | Variável | Uso |
 |---|---|
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY` | Chaves de API das LLMs |
+| `DRAEL_KEY`, `DRAEL_HOST`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY` | Chaves de API e host das LLMs (`DRAEL_API_KEY` também aceito) |
 | `GARGULA_PROVEDOR`, `GARGULA_MODELO`, `GARGULA_BASE_URL` | Define provedor e modelo padrão |
 | `META_ACCESS_TOKEN`, `META_AD_ACCOUNT`, `META_GRAPH_VERSION` | Token com permissão `ads_read` (Meta Ads) |
 | `EVOLUTION_URL`, `EVOLUTION_INSTANCIA`, `EVOLUTION_API_KEY` | Evolution API (WhatsApp) |

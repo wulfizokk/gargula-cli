@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import json
+import re
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,16 +26,53 @@ class ErroAds(Exception):
     pass
 
 
+def _norm_chave(s: str) -> str:
+    sem = unicodedata.normalize("NFKD", (s or "").lower())
+    limpo = "".join(c for c in sem if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", "_", limpo).strip("_")
+
+
+def _campo(norm_linha: dict, *candidatos: str):
+    for c in candidatos:
+        nc = _norm_chave(c)
+        if nc in norm_linha and str(norm_linha[nc]).strip() != "":
+            return norm_linha[nc]
+    for c in candidatos:
+        nc = _norm_chave(c)
+        for k, v in norm_linha.items():
+            if nc in k and str(v).strip() != "":
+                return v
+    return None
+
+
 def _f(v) -> float:
-    try:
+    if v is None:
+        return 0.0
+    if isinstance(v, (int, float)):
         return float(v)
-    except (TypeError, ValueError):
+    s = str(v).strip().replace("R$", "").replace("$", "").replace("%", "").replace(" ", "")
+    if not s:
+        return 0.0
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".") if s.rfind(",") > s.rfind(".") else s.replace(",", "")
+    elif "," in s:
+        s = s.replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
         return 0.0
 
 
 def _acao(lista, tipos) -> float:
     """Primeiro tipo encontrado na ordem de preferência (evita somar a mesma compra 2x)."""
-    por_tipo = {a.get("action_type"): _f(a.get("value")) for a in (lista or [])}
+    if isinstance(lista, str) and lista.strip().startswith("["):
+        try:
+            lista = json.loads(lista)
+        except json.JSONDecodeError:
+            return 0.0
+    if not isinstance(lista, list):
+        return 0.0
+    por_tipo = {a.get("action_type"): _f(a.get("value")) for a in lista if isinstance(a, dict)}
     for t in tipos:
         if t in por_tipo:
             return por_tipo[t]
@@ -41,22 +80,31 @@ def _acao(lista, tipos) -> float:
 
 
 def resumir(linha: dict, nivel: str = "campaign") -> dict:
-    nome = linha.get(f"{nivel}_name") or linha.get("nome") or linha.get("campaign_name") or "?"
-    gasto = _f(linha.get("spend", linha.get("gasto")))
-    compras = _acao(linha.get("actions"), COMPRA) or _f(linha.get("compras"))
-    receita = _acao(linha.get("action_values"), COMPRA) or _f(linha.get("receita"))
-    leads = _acao(linha.get("actions"), LEAD) or _f(linha.get("leads"))
-    conversas = _acao(linha.get("actions"), CONVERSA) or _f(linha.get("conversas"))
-    impressoes = _f(linha.get("impressions", linha.get("impressoes")))
-    cliques = _f(linha.get("clicks", linha.get("cliques")))
+    norm = {_norm_chave(k): v for k, v in linha.items()}
+    nome_nivel_pt = {"campaign": "nome_da_campanha", "adset": "nome_do_conjunto_de_anuncios", "ad": "nome_do_anuncio"}.get(nivel, "")
+    nome = (
+        linha.get(f"{nivel}_name")
+        or _campo(norm, f"{nivel}_name", nome_nivel_pt, "nome", "nome_da_campanha", "nome_do_conjunto", "nome_do_anuncio", "campaign_name", "adset_name", "ad_name")
+        or "?"
+    )
+    gasto = _f(linha.get("spend") if "spend" in linha else _campo(norm, "spend", "gasto", "valor_usado", "valor_gasto", "investimento"))
+    compras = _acao(linha.get("actions"), COMPRA) or _f(_campo(norm, "compras", "purchases", "resultados"))
+    receita = _acao(linha.get("action_values"), COMPRA) or _f(_campo(norm, "receita", "valor_de_conversao_da_compra", "purchase_conversion_value"))
+    leads = _acao(linha.get("actions"), LEAD) or _f(_campo(norm, "leads", "cadastros"))
+    conversas = _acao(linha.get("actions"), CONVERSA) or _f(_campo(norm, "conversas", "conversas_por_mensagem_iniciadas"))
+    impressoes = _f(linha.get("impressions") if "impressions" in linha else _campo(norm, "impressions", "impressoes"))
+    cliques = _f(linha.get("clicks") if "clicks" in linha else _campo(norm, "clicks", "cliques", "cliques_no_link", "cliques_todos"))
+    ctr_bruto = _f(linha.get("ctr") if "ctr" in linha else _campo(norm, "ctr", "ctr_todos"))
+    cpc_bruto = _f(linha.get("cpc") if "cpc" in linha else _campo(norm, "cpc"))
+    cpm_bruto = _f(linha.get("cpm") if "cpm" in linha else _campo(norm, "cpm"))
     return {
-        "nome": nome,
+        "nome": str(nome).strip(),
         "gasto": round(gasto, 2),
         "impressoes": int(impressoes),
         "cliques": int(cliques),
-        "ctr": round(_f(linha.get("ctr")) or (cliques / impressoes * 100 if impressoes else 0), 2),
-        "cpc": round(_f(linha.get("cpc")) or (gasto / cliques if cliques else 0), 2),
-        "cpm": round(_f(linha.get("cpm")) or (gasto / impressoes * 1000 if impressoes else 0), 2),
+        "ctr": round(ctr_bruto or (cliques / impressoes * 100 if impressoes else 0), 2),
+        "cpc": round(cpc_bruto or (gasto / cliques if cliques else 0), 2),
+        "cpm": round(cpm_bruto or (gasto / impressoes * 1000 if impressoes else 0), 2),
         "compras": int(compras),
         "receita": round(receita, 2),
         "cpa": round(gasto / compras, 2) if compras else None,
@@ -108,12 +156,22 @@ def buscar(conta: str | None = None, periodo: str = "last_7d", nivel: str = "cam
     return linhas
 
 
+def ler_csv(texto: str) -> list[dict]:
+    """Lê CSV suportando separador ',' ou ';' (comum no Excel PT-BR)."""
+    linhas = [l for l in texto.splitlines() if l.strip()]
+    if not linhas:
+        return []
+    cab = linhas[0]
+    delim = ";" if cab.count(";") > cab.count(",") else ","
+    return list(csv.DictReader(linhas, delimiter=delim))
+
+
 def carregar_arquivo(caminho: str) -> list[dict]:
     """Métricas exportadas (JSON da Graph API, lista JSON ou CSV com cabeçalho)."""
     p = Path(caminho)
     texto = p.read_text(encoding="utf-8-sig")
     if p.suffix.lower() == ".csv":
-        return list(csv.DictReader(texto.splitlines()))
+        return ler_csv(texto)
     dados = json.loads(texto)
     return dados.get("data", []) if isinstance(dados, dict) else dados
 

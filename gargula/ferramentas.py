@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import fnmatch
 import html
+import ipaddress
 import json
 import os
 import re
+import socket
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -82,8 +85,9 @@ DEFINICOES = [
      "parametros": _obj({"categoria": S}, ["categoria"])},
     {"nome": "reconciliar_checkout", "categoria": "leitura",
      "descricao": "Cruza métricas de anúncios com vendas reais de checkout (Kiwify, Hotmart, etc.) "
-                  "para descobrir o ROAS Real e identificar boletos e Pix não pagos.",
-     "parametros": _obj({"arquivo_ads": S, "arquivo_checkout": S}, ["arquivo_ads", "arquivo_checkout"])},
+                  "para descobrir o ROAS Real e identificar boletos e Pix não pagos. "
+                  "nivel opcional: campaign, adset ou ad.",
+     "parametros": _obj({"arquivo_ads": S, "arquivo_checkout": S, "nivel": S}, ["arquivo_ads", "arquivo_checkout"])},
     {"nome": "crm_status", "categoria": "leitura",
      "descricao": "Inspeciona o status do CRM proprietário (Gárgula/Usetag CRM), módulos ativos e travas do agente.",
      "parametros": _obj({}, [])},
@@ -210,12 +214,38 @@ def buscar_notas(termo: str) -> str:
         raise ErroFerramenta(str(e)) from None
 
 
-def ler_url(url: str) -> str:
-    if not re.match(r"^https?://", url or ""):
+def _validar_url_publica(url: str) -> None:
+    """Impede SSRF para localhost, loopback, link-local e redes privadas."""
+    if not re.match(r"^https?://", url or "", re.IGNORECASE):
         raise ErroFerramenta("só http(s)")
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    host = urllib.parse.urlsplit(url).hostname
+    if not host:
+        raise ErroFerramenta("URL sem host válido")
+    if host.lower() in ("localhost", "ip6-localhost"):
+        raise ErroFerramenta("acesso a endereço local bloqueado por segurança")
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as e:
+        raise ErroFerramenta(f"não consegui resolver o host {host!r}: {e}") from None
+    for info in infos:
+        ip_str = info[4][0].split("%", 1)[0]
+        ip = ipaddress.ip_address(ip_str)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            raise ErroFerramenta(f"acesso a endereço interno ({ip}) bloqueado por segurança")
+
+
+class _RedirectSeguro(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validar_url_publica(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def ler_url(url: str) -> str:
+    _validar_url_publica(url)
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    opener = urllib.request.build_opener(_RedirectSeguro())
+    try:
+        with opener.open(req, timeout=30) as r:
             bruto = r.read(3_000_000)
             tipo = r.headers.get_content_charset() or "utf-8"
     except urllib.error.HTTPError as e:
@@ -298,7 +328,19 @@ def obter_dna(categoria: str) -> str:
     return conteudo or f"DNA para '{categoria}' não configurado ainda."
 
 
-def reconciliar_checkout(arquivo_ads: str, arquivo_checkout: str) -> str:
+def _inferir_nivel_ads(linhas: list[dict], nivel: str | None) -> str:
+    if nivel in ("campaign", "adset", "ad"):
+        return nivel
+    if linhas:
+        chaves = {ads._norm_chave(k) for k in linhas[0].keys()}
+        if "ad_name" in chaves or "nome_do_anuncio" in chaves:
+            return "ad"
+        if "adset_name" in chaves or "nome_do_conjunto_de_anuncios" in chaves:
+            return "adset"
+    return "campaign"
+
+
+def reconciliar_checkout(arquivo_ads: str, arquivo_checkout: str, nivel: str | None = None) -> str:
     from gargula import ads, checkout
     p_ads = caminho(arquivo_ads)
     p_check = caminho(arquivo_checkout)
@@ -306,7 +348,9 @@ def reconciliar_checkout(arquivo_ads: str, arquivo_checkout: str) -> str:
         raise ErroFerramenta(f"arquivo de ads não encontrado: {p_ads}")
     if not p_check.is_file():
         raise ErroFerramenta(f"arquivo de checkout não encontrado: {p_check}")
-    resumos = [ads.resumir(l) for l in ads.carregar_arquivo(str(p_ads))]
+    brutas = ads.carregar_arquivo(str(p_ads))
+    niv = _inferir_nivel_ads(brutas, nivel)
+    resumos = [ads.resumir(l, niv) for l in brutas]
     vendas = checkout.carregar_vendas(str(p_check))
     res = checkout.reconciliar(resumos, vendas)
     return checkout.formatar_tabela(res)
@@ -335,7 +379,9 @@ IMPLEMENTACOES = {
     "executar": lambda a: executar(a.get("comando", ""), a.get("timeout", 120)),
     "whatsapp_enviar": lambda a: whatsapp_enviar(a.get("para", ""), a.get("texto", ""), a.get("via", "evolution")),
     "obter_dna": lambda a: obter_dna(a.get("categoria", "")),
-    "reconciliar_checkout": lambda a: reconciliar_checkout(a.get("arquivo_ads", ""), a.get("arquivo_checkout", "")),
+    "reconciliar_checkout": lambda a: reconciliar_checkout(
+        a.get("arquivo_ads", ""), a.get("arquivo_checkout", ""), a.get("nivel")
+    ),
     "crm_status": lambda a: crm_status(),
     "crm_catalogo": lambda a: crm_catalogo(),
 }
@@ -343,9 +389,12 @@ IMPLEMENTACOES = {
 
 def resumo_chamada(nome: str, args: dict) -> str:
     """Linha curta para mostrar ao usuário (sem despejar conteúdo gigante)."""
-    principal = {"ler_arquivo": "caminho", "listar": "caminho", "buscar_texto": "padrao", "buscar_notas": "termo",
-                 "ler_url": "url", "meta_ads_insights": "periodo", "escrever_arquivo": "caminho",
-                 "editar_arquivo": "caminho", "executar": "comando", "whatsapp_enviar": "para"}.get(nome)
+    principal = {
+        "ler_arquivo": "caminho", "listar": "caminho", "buscar_texto": "padrao", "buscar_notas": "termo",
+        "ler_url": "url", "meta_ads_insights": "periodo", "escrever_arquivo": "caminho",
+        "editar_arquivo": "caminho", "executar": "comando", "whatsapp_enviar": "para",
+        "obter_dna": "categoria", "reconciliar_checkout": "arquivo_checkout",
+    }.get(nome)
     valor = str(args.get(principal, "")) if principal else ""
     valor = valor.replace("\n", " ")
     return f"{nome}({valor[:90] + ('…' if len(valor) > 90 else '')})"

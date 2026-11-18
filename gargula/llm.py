@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 from typing import Callable, Iterable
@@ -19,12 +20,13 @@ from gargula import __version__
 USER_AGENT = f"gargula-cli/{__version__}"
 
 
-def max_tokens() -> int:
+def max_tokens(modelo: str | None = None) -> int:
+    padrao = 32768 if (modelo or "").lower().startswith("drael") else 4096
     try:
         from gargula import config
-        return int(os.environ.get("GARGULA_MAX_TOKENS") or config.carregar().get("max_tokens") or 4096)
+        return int(os.environ.get("GARGULA_MAX_TOKENS") or config.carregar().get("max_tokens") or padrao)
     except (ValueError, TypeError):
-        return 4096
+        return padrao
 
 
 class ErroLLM(Exception):
@@ -150,7 +152,7 @@ def montar_requisicao(tipo: str, base: str, chave: str | None, modelo: str, sist
             headers["Authorization"] = f"Bearer {chave}"
         headers["X-Title"] = "Gargula CLI"  # usado pelo OpenRouter, ignorado pelos demais
         # sem max_tokens o OpenRouter reserva o máximo do modelo e recusa por falta de crédito
-        corpo = {"model": modelo, "stream": stream, "max_tokens": max_tokens(),
+        corpo = {"model": modelo, "stream": stream, "max_tokens": max_tokens(modelo),
                  "messages": [{"role": "system", "content": sistema}] + _msgs_openai(mensagens)}
         if ferramentas:
             corpo["tools"] = [{"type": "function", "function": {
@@ -289,7 +291,10 @@ def conversar(llm: dict, sistema: str, mensagens: list[dict], ferramentas: list[
 
     # ollama e servidores compatíveis locais podem rodar sem chave
     if not llm.get("chave") and llm["provedor"] not in ("ollama", "compativel"):
-        onde = f"defina {llm['env']} ou rode: gargula config set chave.{llm['provedor']} <chave>"
+        if llm["provedor"] == "drael":
+            onde = "rode `drael login`, defina DRAEL_KEY (ou DRAEL_API_KEY) ou rode: gargula config set chave.drael <chave>"
+        else:
+            onde = f"defina {llm['env']} ou rode: gargula config set chave.{llm['provedor']} <chave>"
         raise ErroLLM(f"sem chave de API para {llm['provedor']}: {onde}")
     if not llm.get("base"):
         raise ErroLLM("provedor 'compativel' precisa de base_url: gargula config set base_url.compativel https://...")
@@ -324,19 +329,19 @@ def conversar(llm: dict, sistema: str, mensagens: list[dict], ferramentas: list[
                         acc.evento(dados)
             return acc.resultado()
         except urllib.error.HTTPError as e:
-            if e.code in _RETRIABLE and tentativa < _tentativas - 1:
+            if e.code in _RETRIABLE and tentativa < _tentativas - 1 and not (ao_pedaco and acc.texto):
                 espera = (tentativa + 1) * 2  # 2s, 4s
                 ultimo_erro = ErroLLM(_mensagem_de_erro(e))
                 _time.sleep(espera)
                 continue
             raise ErroLLM(_mensagem_de_erro(e)) from None
         except urllib.error.URLError as e:
-            if tentativa < _tentativas - 1:
+            if tentativa < _tentativas - 1 and not (ao_pedaco and acc.texto):
                 _time.sleep((tentativa + 1) * 2)
                 continue
             raise ErroLLM(f"não consegui conectar em {llm['base']}: {e.reason}") from None
-        except TimeoutError:
-            if tentativa < _tentativas - 1:
+        except (TimeoutError, socket.timeout):
+            if tentativa < _tentativas - 1 and not (ao_pedaco and acc.texto):
                 _time.sleep(1)
                 continue
             raise ErroLLM("a API demorou demais para responder") from None

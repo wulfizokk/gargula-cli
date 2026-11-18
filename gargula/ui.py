@@ -163,12 +163,9 @@ def desenhar(sprite: list[str] | None = None, cor: bool = True, paleta: dict | N
     return saida
 
 
-def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None, auto: bool = False) -> str:
-    """Quadro de boas-vindas com o Gárgula Susanoo e fumacinha de chakra saindo dos chifres."""
-    if cor is None:
-        cor = usa_cor()
+def _caixa_banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool, auto: bool) -> tuple[int, str, list[str]]:
+    """Monta a moldura de boas-vindas sem duplicar código entre estático e animado."""
     largura = 58  # largura interna do quadro
-    sprite = desenhar(cor=cor)
     larg_sprite = len(MASCOTE[0])
     recuo = " " * (1 + (largura - larg_sprite) // 2)
 
@@ -180,21 +177,34 @@ def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None 
     titulo_cru = f"Gárgula CLI  v{versao}"
     titulo = pintar("Gárgula CLI", ROXO, negrito=True, cor=cor) + pintar(f"  v{versao}", CINZA, cor=cor)
     sub = "copiloto de marketing, vendas, WhatsApp e Meta Ads"
-    info = f"{provedor} / {modelo}"
-    info2_cru = f"modo {modo}" + (" · YOLO" if auto else "")
-    info2 = pintar(f"modo {modo}", CINZA, cor=cor) + (pintar(" · ", CINZA, cor=cor) + pintar("⚡ YOLO", AMARELO, negrito=True, cor=cor) if auto else "")
+    info = f"{provedor} / {modelo}"[: largura - 2]
+    info2_cru = f"modo {modo}" + (" · [YOLO]" if auto else "")
+    info2 = pintar(f"modo {modo}", CINZA, cor=cor) + (
+        pintar(" · ", CINZA, cor=cor) + pintar("[YOLO]", AMARELO, negrito=True, cor=cor) if auto else ""
+    )
     dica = "/ajuda · Ctrl+C interrompe · /sair"
 
+    caixa = [
+        pintar("╭" + "─" * largura + "╮", ROXO, cor=cor),
+        linha(titulo_cru, titulo),
+        linha(sub, pintar(sub, LILAS, cor=cor)),
+        linha(""),
+        linha(info, pintar(info, CINZA, cor=cor)),
+        linha(info2_cru, info2),
+        linha(dica, pintar(dica, CINZA, cor=cor)),
+        pintar("╰" + "─" * largura + "╯", ROXO, cor=cor),
+    ]
+    return largura, recuo, caixa
+
+
+def banner(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None, auto: bool = False) -> str:
+    """Quadro de boas-vindas com o Gárgula Susanoo e fumacinha de chakra saindo dos chifres."""
+    if cor is None:
+        cor = usa_cor()
+    _, recuo, caixa = _caixa_banner(versao, provedor, modelo, modo, cor, auto)
     out = [recuo + pintar(s, LILAS, cor=cor) for s in FUMACA_ESTATICA]
-    out.extend(recuo + l for l in sprite)
-    out.append(pintar("╭" + "─" * largura + "╮", ROXO, cor=cor))
-    out.append(linha(titulo_cru, titulo))
-    out.append(linha(sub, pintar(sub, LILAS, cor=cor)))
-    out.append(linha(""))
-    out.append(linha(info[: largura - 2], pintar(info[: largura - 2], CINZA, cor=cor)))
-    out.append(linha(info2_cru, info2))
-    out.append(linha(dica, pintar(dica, CINZA, cor=cor)))
-    out.append(pintar("╰" + "─" * largura + "╯", ROXO, cor=cor))
+    out.extend(recuo + l for l in desenhar(cor=cor))
+    out.extend(caixa)
     return "\n".join(out)
 
 
@@ -204,34 +214,7 @@ def banner_animado(versao: str, provedor: str, modelo: str, modo: str, cor: bool
 
     if cor is None:
         cor = usa_cor()
-    largura = 58
-    larg_sprite = len(MASCOTE[0])
-    recuo = " " * (1 + (largura - larg_sprite) // 2)
-
-    def linha(txt_cru: str, txt_cor: str | None = None) -> str:
-        espaco = " " * max(0, largura - 2 - len(txt_cru))
-        borda = pintar("│", ROXO, cor=cor)
-        return f"{borda}  {txt_cor if txt_cor is not None else txt_cru}{espaco}{borda}"
-
-    titulo_cru = f"Gárgula CLI  v{versao}"
-    titulo = pintar("Gárgula CLI", ROXO, negrito=True, cor=cor) + pintar(f"  v{versao}", CINZA, cor=cor)
-    sub = "copiloto de marketing, vendas, WhatsApp e Meta Ads"
-    info = f"{provedor} / {modelo}"
-    info2_cru = f"modo {modo}" + (" · YOLO" if auto else "")
-    info2 = pintar(f"modo {modo}", CINZA, cor=cor) + (pintar(" · ", CINZA, cor=cor) + pintar("⚡ YOLO", AMARELO, negrito=True, cor=cor) if auto else "")
-    dica = "/ajuda · Ctrl+C interrompe · /sair"
-
-    corpo_caixa = [
-        pintar("╭" + "─" * largura + "╮", ROXO, cor=cor),
-        linha(titulo_cru, titulo),
-        linha(sub, pintar(sub, LILAS, cor=cor)),
-        linha(""),
-        linha(info[: largura - 2], pintar(info[: largura - 2], CINZA, cor=cor)),
-        linha(info2_cru, info2),
-        linha(dica, pintar(dica, CINZA, cor=cor)),
-        pintar("╰" + "─" * largura + "╯", ROXO, cor=cor),
-    ]
-
+    _, recuo, corpo_caixa = _caixa_banner(versao, provedor, modelo, modo, cor, auto)
     total_linhas = len(FUMACA_ESTATICA) + (len(MASCOTE) + 1) // 2 + len(corpo_caixa)
 
     def _lerp(c1, c2, t):
@@ -277,10 +260,14 @@ def banner_animado(versao: str, provedor: str, modelo: str, modo: str, cor: bool
 
 
 def exibir_banner_inicial(versao: str, provedor: str, modelo: str, modo: str, cor: bool | None = None, auto: bool = False) -> None:
-    """Exibe animação de despertar no terminal interativo ou banner estático em pipes/scripts."""
+    """Exibe animação de despertar no terminal interativo ou banner estático em pipes/terminais estreitos."""
+    import shutil
+
     if cor is None:
         cor = usa_cor()
-    if cor and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+    tam = shutil.get_terminal_size((80, 24))
+    cabe_animacao = tam.columns >= 62 and tam.lines >= 17
+    if cor and cabe_animacao and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
         banner_animado(versao, provedor, modelo, modo, cor=cor, auto=auto)
     else:
         print(banner(versao, provedor, modelo, modo, cor=cor, auto=auto))

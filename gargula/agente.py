@@ -13,6 +13,19 @@ from gargula.llm import ErroLLM, conversar
 MAX_PASSOS = 40
 
 
+def _compactar_imagens_antigas(historico: list[dict], manter: int = 2) -> None:
+    """Mantém base64 apenas nas últimas `manter` mensagens com imagens para poupar RAM e tokens."""
+    com_img = [i for i, m in enumerate(historico) if m.get("imagens")]
+    if len(com_img) <= manter:
+        return
+    for i in com_img[:-manter]:
+        imgs = historico[i].pop("imagens", [])
+        nomes = ", ".join(x.get("nome", "imagem") for x in imgs)
+        if nomes:
+            nota = f"\n[imagens enviadas anteriormente: {nomes}]"
+            historico[i]["content"] = (historico[i].get("content") or "") + nota
+
+
 class Agente:
     def __init__(self, llm: dict, modo: str = "geral", auto: bool = False, com_ferramentas: bool = True):
         self.llm = llm
@@ -22,6 +35,7 @@ class Agente:
         self.historico: list[dict] = []
         self.liberadas: set[str] = set()   # ferramentas liberadas "para a sessão"
         self.cor = ui.usa_cor()
+        self._inicio_turno: int | None = None
 
     # ---------- prompt ----------
     def sistema(self) -> str:
@@ -84,15 +98,18 @@ class Agente:
 
     # ---------- turno ----------
     def turno(self, texto: str, imagens: list[dict] | None = None) -> str:
+        self._inicio_turno = len(self.historico)
         msg_user: dict = {"role": "user", "content": texto}
         if imagens:
             msg_user["imagens"] = imagens
         self.historico.append(msg_user)
+        _compactar_imagens_antigas(self.historico)
         defs = ferramentas.definicoes_api() if self.com_ferramentas else None
+        sistema = self.sistema()
         final = ""
         for _ in range(MAX_PASSOS):
             with ui.pensando(cor=self.cor):
-                r = conversar(self.llm, self.sistema(), self.historico, defs)
+                r = conversar(self.llm, sistema, self.historico, defs)
             self.historico.append({"role": "assistant", "content": r["texto"],
                                    "chamadas": r["chamadas"], "bruto": r.get("bruto")})
             if r["texto"].strip():
@@ -101,6 +118,7 @@ class Agente:
             if not r["chamadas"]:
                 if r.get("parada") in ("max_tokens", "length", "MAX_TOKENS"):
                     ui.aviso("a resposta bateu no limite de tokens (gargula config set max_tokens 8192)")
+                self._inicio_turno = None
                 return final
             resultados = []
             try:
@@ -126,18 +144,24 @@ class Agente:
                 raise
             self.historico.append({"role": "ferramenta", "resultados": resultados})
         ui.aviso(f"parei depois de {MAX_PASSOS} passos; diga 'continue' para seguir")
+        self._inicio_turno = None
         return final
 
     def desfazer_ultimo(self) -> None:
-        """Após erro na primeira chamada, tira o pedido sem resposta do histórico."""
+        """Após erro ou interrupção, remove todo o turno inacabado do histórico."""
+        if self._inicio_turno is not None and self._inicio_turno <= len(self.historico):
+            del self.historico[self._inicio_turno:]
+            self._inicio_turno = None
+            return
         if self.historico and self.historico[-1]["role"] == "user":
             self.historico.pop()
 
 
-def rodar_unico(llm: dict, texto: str, modo: str = "geral", auto: bool = False) -> int:
+def rodar_unico(llm: dict, texto: str, modo: str = "geral", auto: bool = False,
+                imagens: list[dict] | None = None) -> int:
     agente = Agente(llm, modo, auto)
     try:
-        agente.turno(texto)
+        agente.turno(texto, imagens=imagens)
     except ErroLLM as e:
         ui.erro(str(e))
         return 1

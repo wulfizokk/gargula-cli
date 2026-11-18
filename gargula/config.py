@@ -9,6 +9,8 @@ from pathlib import Path
 # tipo = formato da API. "openai" cobre qualquer API compatível com OpenAI.
 # Os modelos padrão mudam com o tempo: troque com --modelo ou `gargula config set modelo ...`.
 PROVEDORES: dict[str, dict] = {
+    "drael": {"tipo": "openai", "base": "https://drael.sh/v1",
+              "env": "DRAEL_KEY", "env_alt": ("DRAEL_API_KEY",), "modelo": "drael-v1"},
     "anthropic": {"tipo": "anthropic", "base": "https://api.anthropic.com/v1",
                   "env": "ANTHROPIC_API_KEY", "modelo": "claude-sonnet-5-5"},
     "openai": {"tipo": "openai", "base": "https://api.openai.com/v1",
@@ -139,21 +141,54 @@ def carregar_envs() -> list[str]:
     return lidos
 
 
+def _pasta_drael() -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "drael"
+
+
+def credencial_drael() -> str | None:
+    """Lê credencial oficial gravada por `drael login` (~/.config/drael/credential)."""
+    try:
+        val = (_pasta_drael() / "credential").read_text(encoding="utf-8").strip()
+        return val or None
+    except OSError:
+        return None
+
+
+def _host_drael() -> str:
+    env = os.environ.get("DRAEL_HOST")
+    if env:
+        return env.rstrip("/")
+    try:
+        cfg_d = json.loads((_pasta_drael() / "config.json").read_text(encoding="utf-8"))
+        host = (cfg_d or {}).get("host")
+        if host:
+            return str(host).rstrip("/")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+    return "https://drael.sh"
+
+
 def resolver_llm(provedor: str | None = None, modelo: str | None = None,
                  base_url: str | None = None) -> dict:
     """Junta provedor, modelo, base e chave de API para uma chamada."""
     cfg = carregar()
-    nome = provedor or os.environ.get("GARGULA_PROVEDOR") or cfg.get("provedor") or "anthropic"
+    nome = provedor or os.environ.get("GARGULA_PROVEDOR") or cfg.get("provedor") or "drael"
     if nome not in PROVEDORES:
         raise ValueError(f"provedor desconhecido: {nome}. Use um de: {', '.join(PROVEDORES)}")
     p = PROVEDORES[nome]
     # "modelo" genérico só vale para o provedor salvo; senão cada um usa o próprio padrão
     modelo_salvo = cfg.get(f"modelo.{nome}") or (
-        cfg.get("modelo") if cfg.get("provedor", "anthropic") == nome else None)
+        cfg.get("modelo") if cfg.get("provedor", "drael") == nome else None)
     modelo_final = modelo or os.environ.get("GARGULA_MODELO") or modelo_salvo or p["modelo"]
+    base_padrao = f"{_host_drael()}/v1" if nome == "drael" else p["base"]
     base = (base_url or os.environ.get("GARGULA_BASE_URL")
-            or cfg.get(f"base_url.{nome}") or p["base"])
-    chave = (os.environ.get(p["env"]) if p["env"] else None) or cfg.get(f"chave.{nome}")
+            or cfg.get(f"base_url.{nome}") or base_padrao)
+    chave = (
+        (os.environ.get(p["env"]) if p["env"] else None)
+        or next((os.environ.get(e) for e in p.get("env_alt", ()) if os.environ.get(e)), None)
+        or cfg.get(f"chave.{nome}")
+        or (credencial_drael() if nome == "drael" else None)
+    )
     # chave da Anthropic sem workspace vinculado exige o cabeçalho anthropic-workspace-id
     workspace = (os.environ.get("ANTHROPIC_WORKSPACE_ID") or cfg.get("anthropic.workspace")
                  if p["tipo"] == "anthropic" else None)

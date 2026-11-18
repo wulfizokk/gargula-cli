@@ -45,7 +45,7 @@ def pasta_crm() -> Path | None:
         Path.home() / "Projetos" / "crm-usetag",
     ]
     for c in candidatos:
-        if c.is_dir() and (c / "painel" or c / "worker" or c / "banco").is_dir():
+        if c.is_dir() and any((c / sub).is_dir() for sub in ("painel", "worker", "banco")):
             return c
     return None
 
@@ -125,8 +125,12 @@ def formatar_tabela_catalogo() -> str:
     def fmt(r, k):
         v = r.get(k)
         if k == "preco":
-            return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        return str(v)
+            try:
+                num = float(v)
+                return f"R$ {num:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            except (TypeError, ValueError):
+                return "—"
+        return "—" if v is None else str(v)
 
     corpo = [[fmt(r, k) for _, k in cols] for r in itens]
     larg = [max(len(t), *(len(l[i]) for l in corpo)) if corpo else len(t) for i, (t, _) in enumerate(cols)]
