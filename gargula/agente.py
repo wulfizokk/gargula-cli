@@ -72,7 +72,12 @@ class Agente:
                 fora = not ferramentas.dentro_da_area(ferramentas.caminho(args.get("caminho", "")))
             except ferramentas.ErroFerramenta as e:
                 return False, str(e)
-        if cat == "escrita" and not fora and (self.auto or nome in self.liberadas):
+        # YOLO: tudo liberado exceto WhatsApp (que SEMPRE pede)
+        if self.auto and cat != "sempre":
+            if fora:
+                ui.aviso(f"escrevendo fora da base: {args.get('caminho', '?')}")
+            return True, ""
+        if cat == "escrita" and not fora and nome in self.liberadas:
             return True, ""
         if not sys.stdin.isatty():
             return False, "sem permissão: rode no terminal interativo ou use --auto"

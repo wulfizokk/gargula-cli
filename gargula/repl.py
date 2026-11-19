@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -19,6 +20,7 @@ AJUDA = """Comandos:
   /contexto                                 mostra os arquivos de instrução carregados (GARGULA.md, AGENTS.md...)
   /limpar                                   apaga o histórico da conversa
   /salvar [arquivo.md]                      salva a conversa em Markdown
+  /resume                                   salva sessão para retomar depois (ou carrega a última)
   /sair                                     encerra (ou Ctrl+D)
 Termine a linha com \\ para continuar escrevendo na linha de baixo. Ctrl+C interrompe a resposta."""
 
@@ -68,6 +70,67 @@ def salvar_conversa(historico: list[dict], destino: str | None) -> Path:
     return p
 
 
+def _pasta_sessoes() -> Path:
+    return config.pasta() / "sessoes"
+
+
+def _serializar_msg(m: dict) -> dict:
+    """Versão serializável de uma mensagem do histórico (remove base64 pesado)."""
+    s: dict = {"role": m.get("role", ""), "content": m.get("content", "")}
+    if m.get("chamadas"):
+        s["chamadas"] = [{"id": c.get("id"), "nome": c.get("nome"), "args": c.get("args")}
+                         for c in m["chamadas"]]
+    if m.get("resultados"):
+        s["resultados"] = [{"id": r.get("id"), "nome": r.get("nome"),
+                            "conteudo": r.get("conteudo", "")[:2000], "erro": r.get("erro", False)}
+                           for r in m["resultados"]]
+    # imagens: só guarda nome, não base64
+    if m.get("imagens"):
+        s["imagens_ref"] = [i.get("nome", "?") for i in m["imagens"]]
+    return s
+
+
+def salvar_sessao(historico: list[dict], modo: str, destino: str | None = None) -> Path:
+    """Salva sessão em JSON para /resume posterior."""
+    pasta = _pasta_sessoes()
+    pasta.mkdir(parents=True, exist_ok=True)
+    if destino:
+        p = Path(destino)
+    else:
+        p = pasta / f"sessao-{datetime.now():%Y%m%d-%H%M}.json"
+    dados = {
+        "versao": 1,
+        "modo": modo,
+        "data": datetime.now().isoformat(),
+        "historico": [_serializar_msg(m) for m in historico],
+    }
+    p.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+    # symlink/cópia para 'ultima.json' para fácil retomada
+    ultima = pasta / "ultima.json"
+    try:
+        if ultima.exists():
+            ultima.unlink()
+        ultima.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+    return p
+
+
+def carregar_sessao(origem: str | None = None) -> tuple[list[dict], str] | None:
+    """Carrega sessão salva. Retorna (historico, modo) ou None."""
+    if origem:
+        p = Path(origem)
+    else:
+        p = _pasta_sessoes() / "ultima.json"
+    if not p.is_file():
+        return None
+    try:
+        dados = json.loads(p.read_text(encoding="utf-8"))
+        return dados.get("historico", []), dados.get("modo", "geral")
+    except (json.JSONDecodeError, KeyError, OSError):
+        return None
+
+
 def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: bool = False) -> int:
     try:
         llm = config.resolver_llm(provedor, modelo)
@@ -98,6 +161,9 @@ def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: b
             texto = _ler_entrada(seta).strip()
         except (EOFError, KeyboardInterrupt):
             print()
+            if historico:
+                salvar_sessao(historico, agente.modo)
+                ui.ok("sessão salva automaticamente (/resume para retomar)")
             return 0
         if not texto:
             continue
@@ -105,6 +171,9 @@ def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: b
             cmd, _, arg = texto[1:].partition(" ")
             arg = arg.strip()
             if cmd in ("sair", "exit", "quit"):
+                if historico:
+                    salvar_sessao(historico, agente.modo)
+                    ui.ok("sessão salva (/resume para retomar)")
                 return 0
             if cmd in ("ajuda", "help", "?"):
                 print(AJUDA)
@@ -141,6 +210,25 @@ def rodar(provedor: str | None, modelo: str | None, modo: str = "geral", auto: b
                     ui.aviso("nada para salvar ainda")
                 else:
                     ui.ok(f"salvo em {salvar_conversa(historico, arg or None)}")
+            elif cmd == "resume":
+                if arg == "carregar" or (not arg and not historico):
+                    # /resume sem arg e sem histórico = carregar última
+                    sessao = carregar_sessao(arg if arg and arg != "carregar" else None)
+                    if sessao:
+                        hist_carregado, modo_carregado = sessao
+                        historico.clear()
+                        historico.extend(hist_carregado)
+                        agente.modo = modo_carregado
+                        ui.ok(f"sessão carregada ({len(historico)} mensagens, modo: {modo_carregado})")
+                    else:
+                        ui.aviso("nenhuma sessão salva encontrada")
+                else:
+                    # /resume = salvar sessão atual
+                    if not historico:
+                        ui.aviso("nada para salvar ainda")
+                    else:
+                        p = salvar_sessao(historico, agente.modo, arg or None)
+                        ui.ok(f"sessão salva em {p}")
             else:
                 ui.erro("comando desconhecido; digite /ajuda")
             continue
